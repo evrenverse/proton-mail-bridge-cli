@@ -1,0 +1,21 @@
+# Copy to ~/.config/proton-mail-bridge/config.toml (POSIX: chmod 600)
+default_account = "me@proton.me"
+
+[endpoint]
+host = "127.0.0.1"
+imap_port = 1143
+smtp_port = 1025
+security = "starttls"   # or "ssl" (IMAP; default for SMTP)
+# smtp_security = "ssl"   # SMTP separately — the macOS Bridge often uses ssl for SMTP
+# timeout = 30            # socket timeout in seconds (IMAP+SMTP)
+# tls_cert_path = "/path/to/bridge-cert.pem"
+
+[[accounts]]
+email = "me@proton.me"
+password = "<bridge-password>"
+alias = "private"
+
+[[accounts]]
+email = "work@proton.me"
+password = "<bridge-password>"
+alias = "work"

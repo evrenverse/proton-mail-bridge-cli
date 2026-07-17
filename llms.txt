@@ -1,0 +1,20 @@
+# proton-mail-bridge-cli
+
+> Unofficial agent-native CLI for the Proton Mail Bridge (local IMAP/SMTP gateway). Search, read,
+> send, and organize Proton Mail with JSON output for AI agents. Multi-account fan-out, robust
+> WSL→Windows connectivity. Python 3.11+, Apache-2.0. Not affiliated with Proton.
+
+## Install
+`uv tool install git+https://github.com/codename-cn/proton-mail-bridge-cli` — command `proton-mail-bridge` / `pmb`.
+
+## Quickstart
+`pmb account add` then `pmb --json message search --text "..." --with-body`.
+
+## Rules for agents
+- Always `--json`; bulk-first (one task = 1–3 calls).
+- No `--account` → fan-out over all accounts for search/list (results tagged with `account`).
+- Discovery: `pmb --help`, `pmb describe <group> <command>`, `pmb fields message`.
+- Writes are risk-tiered (🟢/🟡/🔴); preview sends with `--dry-run`; never auto-`--yes`.
+
+## Docs
+- README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md
