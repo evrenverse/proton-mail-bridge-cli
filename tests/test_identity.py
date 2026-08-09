@@ -101,3 +101,30 @@ def test_unknown_value_still_reports_unknown_account():
     with pytest.raises(AccountSelectionError) as exc:
         resolve_accounts(c, "nirgends", mode="send")
     assert exc.value.title == "Unknown account"
+
+
+def test_pick_reply_identity_uses_the_addressed_address():
+    acc = Account("a@p.me", "pw", identities=[Identity("k@p.me", label="kontakt")])
+    original = {"to": ["k@p.me", "wer@x.de"], "cc": [], "headers": {}}
+    assert ident.pick_reply_identity(acc, original).email == "k@p.me"
+
+
+def test_pick_reply_identity_checks_cc_and_delivered_to():
+    acc = Account("a@p.me", "pw", identities=[Identity("k@p.me")])
+    via_cc = {"to": ["wer@x.de"], "cc": ["k@p.me"], "headers": {}}
+    assert ident.pick_reply_identity(acc, via_cc).email == "k@p.me"
+    via_header = {"to": ["wer@x.de"], "cc": [],
+                  "headers": {"delivered-to": ["Kontakt <k@p.me>"]}}
+    assert ident.pick_reply_identity(acc, via_header).email == "k@p.me"
+
+
+def test_pick_reply_identity_falls_back_to_default():
+    acc = Account("a@p.me", "pw", identities=[Identity("k@p.me", label="kontakt")],
+                  default_identity="kontakt")
+    original = {"to": ["fremd@x.de"], "cc": [], "headers": {}}
+    assert ident.pick_reply_identity(acc, original).email == "k@p.me"
+
+
+def test_own_addresses_covers_all_identities():
+    acc = Account("A@p.me", "pw", identities=[Identity("K@p.me")])
+    assert ident.own_addresses(acc) == {"a@p.me", "k@p.me"}

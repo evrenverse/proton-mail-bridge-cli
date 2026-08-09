@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from email.utils import parseaddr
+
 from proton_mail_bridge.core.config import Account, Config, Identity, resolve_accounts
 from proton_mail_bridge.core.errors import AccountSelectionError
 
@@ -78,3 +80,28 @@ def resolve_identity(
             "config", "Ambiguous identity", f"{identity_arg} exists in {owners} — pass --account."
         )
     return hits[0]
+
+
+def own_addresses(account: Account) -> set[str]:
+    """Every sender address of the account, lower-cased — for self-filtering on reply-all."""
+    return {i.email.lower() for i in account_identities(account)}
+
+
+def pick_reply_identity(account: Account, original: dict) -> Identity:
+    """The identity the original message was addressed to; falls back to the default.
+
+    Checks To, Cc and the Delivered-To/X-Original-To headers in that order.
+    """
+    identities = account_identities(account)
+    by_address = {i.email.lower(): i for i in identities}
+    headers = original.get("headers") or {}
+    delivered = [
+        value
+        for key in ("delivered-to", "x-original-to")
+        for value in (headers.get(key) or ())
+    ]
+    for raw in [*(original.get("to") or []), *(original.get("cc") or []), *delivered]:
+        address = (parseaddr(raw)[1] or "").strip().lower()
+        if address in by_address:
+            return by_address[address]
+    return default_identity(account)

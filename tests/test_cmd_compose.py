@@ -180,3 +180,91 @@ def test_draft_uses_identity(monkeypatch):
     assert result.exit_code == 0
     assert len(mb.appended) == 1
     assert b"From: Kontakt <kontakt@p.me>" in mb.appended[0][2]
+
+
+def test_reply_uses_the_addressed_identity(monkeypatch):
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(to=("kontakt@p.me",))
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(main, ["compose", "reply", "--uid", "1", "--body", "ok", "--yes"])
+    assert result.exit_code == 0
+    assert sent[0]["From"] == "Kontakt <kontakt@p.me>"
+
+
+def test_reply_all_drops_every_own_address(monkeypatch):
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(to=("kontakt@p.me", "other@x.de"), cc=("me@p.me", "cc@x.de"))
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["compose", "reply", "--uid", "1", "--all", "--body", "ok", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert sent[0]["To"] == "supplier@company.com, other@x.de"  # kontakt@p.me raus
+    assert sent[0]["Cc"] == "cc@x.de"                            # me@p.me raus
+
+
+def test_reply_identity_flag_overrides_automatic_choice(monkeypatch):
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(to=("me@p.me",))
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["compose", "reply", "--uid", "1", "--body", "ok", "--identity", "kontakt", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert sent[0]["From"] == "Kontakt <kontakt@p.me>"
+
+
+def test_reply_dry_run_reveals_the_automatic_sender(monkeypatch):
+    """The dry run is the only place a human can check the automatic sender choice."""
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(to=("kontakt@p.me",))
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["--json", "compose", "reply", "--uid", "1", "--body", "ok", "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert sent == []
+    data = json.loads(result.output)
+    assert data["from"] == "kontakt@p.me"
+    assert data["account"] == "me@p.me"
+
+
+def test_forward_uses_the_addressed_identity(monkeypatch):
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(to=("kontakt@p.me",))
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["compose", "forward", "--uid", "1", "--to", "x@y.de", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert sent[0]["From"] == "Kontakt <kontakt@p.me>"
