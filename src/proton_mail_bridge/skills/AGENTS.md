@@ -16,12 +16,15 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
 - **Multi-account fan-out**: without `--account`, `message search`/`list` cover all accounts
   (results tagged with `account`). Sending uses `default_account`/the only account,
   otherwise `--account`/`--from`.
+- **Sender identity**: `--identity <label|address>` picks the sender address (and thereby the
+  account); `account list` shows all identities. `reply`/`forward` default to the address the
+  original was sent to.
 - **Search folder-smart**: no `--folder` → `All Mail`; "sent" → `--folder Sent`;
   "received" → `--folder INBOX`. Names are localized → `pmb --json account info` shows the map.
 - **Follow-up ops**: pass `account` + `folder` + `uid` through from the search result
   (UIDs are unique per account+folder).
-- **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <group> <command>`,
-  `pmb --json fields message`.
+- **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <path...>`
+  (e.g. `describe account identity add`), `pmb --json fields message`.
 - **Writes** (move/delete/send): `--dry-run` first (for send), never pass `--yes` on your own.
 
 ## Protection layer

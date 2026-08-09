@@ -29,6 +29,11 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
 - **Multi-account fan-out**: without `--account`, `message search`/`list` fan out over **all**
   accounts (results tagged with `account`). Pick one account with `--account <email|alias>`.
   Sending uses `default_account`/the only account, otherwise `--account`/`--from`.
+- **Sender identity**: one Proton account can own several addresses. `pmb --json account list`
+  shows them per account (`identities`, `default_identity`). Choose one with
+  `--identity <label|address>` — that alone also picks the account. Without it, `send`/`draft`
+  use the account's `default_identity`, while `reply`/`forward` answer from the address the
+  original mail was sent to. Unknown identities are rejected before any connection is made.
 - **Search folder-smart**:
   - no `--folder` → `All Mail` (complete view, deduplicated by Message-ID); also contains
     Spam/Trash and is effectively read-only (search/read only)
@@ -38,8 +43,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
     needed to see the exact (possibly localized) folder name
 - **Follow-up ops** (`read`/`move`/`delete`): pass `account` + `folder` + `uid` through from the
   search result. UIDs are unique per account+folder.
-- **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <group> <command>`,
-  `pmb --json fields message`.
+- **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <path...>`
+  (e.g. `describe account identity add`), `pmb --json fields message`.
 
 ## Write operations — protection layer
 

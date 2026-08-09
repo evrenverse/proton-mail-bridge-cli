@@ -14,6 +14,15 @@ security = "starttls"   # or "ssl" (IMAP; default for SMTP)
 email = "me@proton.me"
 password = "<bridge-password>"
 alias = "private"
+# Sender identity used when neither --identity nor --from is given.
+# Value is a label or an address from the identities below (or the login address).
+default_identity = "kontakt"
+# Further addresses of the SAME Proton account (Bridge in combined-addresses mode).
+# Populate automatically: `pmb account identity discover --save`
+identities = [
+    { email = "kontakt@proton.me", name = "Kontakt", label = "kontakt" },
+    { email = "rechnung@proton.me", name = "Accounting", label = "rechnung" },
+]
 
 [[accounts]]
 email = "work@proton.me"

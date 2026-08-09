@@ -11,6 +11,11 @@ Global flags go **before** the group: `pmb --json --account <val> <group> <comma
 - `pmb account set-default <value>`
 - `pmb --json account info [--account V|all]` — shows real folder names/special-use map
 - `pmb --json account test [--account V|all]` — login test
+- `pmb --json --account A account identity add --email E [--name N --label L]`
+- `pmb --json --account A account identity remove <label|email>`
+- `pmb --json --account A account identity set-default <label|email>`
+- `pmb --json [--account A] account identity discover [--limit N --save]` — scans the Sent
+  folder for sender addresses; fans out over all accounts without `--account`
 
 ## bridge
 
@@ -44,10 +49,10 @@ Global flags go **before** the group: `pmb --json --account <val> <group> <comma
 
 ## compose
 
-- `pmb --json --account A compose send --to A --subject S [--cc A --bcc A --body T --body-file F --html-file F --attach PATH --from E --dry-run --yes]` 🟡
-- `pmb --json --account A compose reply --uid U [--folder F --all --body T --attach PATH --dry-run --yes]` 🟡
-- `pmb --json --account A compose forward --uid U --to A [--folder F --body T --dry-run --yes]` 🟡
-- `pmb --json --account A compose draft --to A --subject S [--folder F --body T --attach PATH]` 🟢
+- `pmb --json --account A compose send --to A --subject S [--cc A --bcc A --body T --body-file F --html-file F --attach PATH --from E --identity E --dry-run --yes]` 🟡
+- `pmb --json --account A compose reply --uid U [--folder F --all --body T --attach PATH --identity E --dry-run --yes]` 🟡
+- `pmb --json --account A compose forward --uid U --to A [--folder F --body T --identity E --dry-run --yes]` 🟡
+- `pmb --json --account A compose draft --to A --subject S [--folder F --body T --attach PATH --identity E]` 🟢
 
 ## attachment
 
@@ -59,6 +64,7 @@ Global flags go **before** the group: `pmb --json --account <val> <group> <comma
 
 ## meta / skill
 
-- `pmb --json describe <group> <command>` — command metadata (options, description)
+- `pmb --json describe <path...>` — command metadata (options, description); walks nested
+  groups (`describe account identity add`) and lists a group's commands when given a group
 - `pmb --json fields message|folder|attachment` — JSON shape documentation
 - `pmb skill install --agent claude|codex [--dest PATH]` — copy skill files into the agent location

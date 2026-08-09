@@ -35,9 +35,14 @@ Sorting/threading happens client-side; `pmb --json account info` shows **no** qu
 
 - The Bridge stores sent mail in the Sent folder **itself** — do **not** additionally save it
   via IMAP APPEND (that duplicates Sent).
-- **From address**: only your own account addresses are allowed; foreign/alias addresses
-  (e.g. SimpleLogin) → "Invalid Return Path" error. Multiple senders → run the Bridge in
-  **split-addresses mode**.
+- **From address**: every address of your own Proton account works, even with the Bridge in
+  **combined-addresses mode** (one login covers all addresses). Configure them once via
+  `pmb account identity discover --save`, then select with `--identity <label|address>`.
+- Foreign addresses (e.g. SimpleLogin aliases) are **not** allowed → the Bridge answers with
+  "Invalid Return Path".
+- **`MAIL FROM` is no validation**: the Bridge answers `250 … Roger, accepting mail from <…>`
+  for *any* address, including addresses that do not exist. The check happens at send time.
+  That is why identities are discovered from the Sent folder instead of probed via SMTP.
 
 ## Limits
 

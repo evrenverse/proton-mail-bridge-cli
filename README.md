@@ -39,7 +39,8 @@ Operating rules (details in the skill):
 1. **Always `--json`**, **bulk-first** (one task = 1–3 calls).
 2. **Multi-account**: without `--account`, `message search`/`list` fan out over all accounts.
 3. **Token-efficient**: `message search --ids-only` (pipelines), `--count-only` (count questions).
-4. **Discovery**: `pmb --help`, `pmb describe <group> <command>`, `pmb fields message`.
+4. **Discovery**: `pmb --help`, `pmb describe <path...>` (e.g. `describe account identity add`),
+   `pmb fields message`.
 5. **Write operations**: never pass `--yes` on your own; show `--dry-run` before `send`.
 
 ## Configuration
@@ -50,6 +51,20 @@ Env vars (`PROTON_BRIDGE_HOST/IMAP_PORT/SMTP_PORT/USER/PASS/ACCOUNT`) or a confi
 **macOS:** the Bridge often runs SMTP in SSL mode (IMAP stays STARTTLS). `pmb account add`
 detects this automatically; after the fact: `pmb bridge config --smtp-security ssl`
 (diagnosis: `pmb bridge doctor`).
+
+### Multiple sender addresses
+
+A Proton account can own several addresses. With the Bridge in combined-addresses mode a
+single login covers all of them:
+
+```bash
+pmb --json account identity discover          # preview: senders found in Sent
+pmb --json account identity discover --save   # write them into the config
+pmb account identity set-default kontakt      # default sender for this account
+pmb --json compose send --identity kontakt --to a@x.de --subject S --body B --dry-run
+```
+
+`reply` and `forward` answer from the address the original mail was sent to.
 
 ## WSL → Windows bridge
 
