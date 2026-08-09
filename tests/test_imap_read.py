@@ -50,3 +50,13 @@ def test_folder_status():
     client = ImapClient(FakeMailBox(), account_email="me@p.me")
     st = client.folder_status("INBOX")
     assert st["MESSAGES"] == 1
+
+
+def test_sender_addresses_reads_the_display_name():
+    from tests.conftest import FakeAddress, FakeMessage
+    named = FakeMessage(uid="1", from_="c@p.me",
+                        from_values=FakeAddress(name="Chef", email="c@p.me"))
+    plain = FakeMessage(uid="2", from_="k@p.me")
+    client = ImapClient(FakeMailBox({"Sent": [named, plain]}), account_email="me@p.me")
+    assert client.sender_addresses("Sent", limit=None) == [("", "k@p.me"), ("Chef", "c@p.me")]
+    assert client.sender_addresses("Sent", limit=1) == [("", "k@p.me")]  # newest first

@@ -105,3 +105,29 @@ def pick_reply_identity(account: Account, original: dict) -> Identity:
         if address in by_address:
             return by_address[address]
     return default_identity(account)
+
+
+def group_senders(pairs: list[tuple[str, str]]) -> list[dict]:
+    """(display name, address) pairs → [{"email", "name", "count"}], most frequent first.
+
+    `name` is the most common non-empty display name seen for that address.
+    """
+    counts: dict[str, int] = {}
+    display: dict[str, str] = {}
+    names: dict[str, dict[str, int]] = {}
+    for name, raw in pairs:
+        address = (parseaddr(raw)[1] or raw).strip()
+        if "@" not in address:
+            continue
+        key = address.lower()
+        display.setdefault(key, address)
+        counts[key] = counts.get(key, 0) + 1
+        if name:
+            names.setdefault(key, {})
+            names[key][name] = names[key].get(name, 0) + 1
+    result: list[dict] = []
+    for key, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        seen = names.get(key, {})
+        best = max(seen.items(), key=lambda kv: (kv[1], kv[0]))[0] if seen else None
+        result.append({"email": display[key], "name": best, "count": count})
+    return result

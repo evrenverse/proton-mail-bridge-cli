@@ -130,6 +130,17 @@ class ImapClient:
         self._mb.folder.set(folder)
         return len(self._mb.uids(self._criteria(criteria)))
 
+    def sender_addresses(self, folder: str, limit: int | None) -> list[tuple[str, str]]:
+        """(display name, From address) per message — headers only, no body fetch."""
+        self._mb.folder.set(folder)
+        msgs = self._mb.fetch("ALL", limit=limit, mark_seen=False, bulk=True, reverse=True,
+                              headers_only=True)
+        out: list[tuple[str, str]] = []
+        for m in msgs:
+            values = getattr(m, "from_values", None)
+            out.append((getattr(values, "name", "") or "", m.from_))
+        return out
+
     def create_folder(self, name: str) -> None:
         self._mb.folder.create(name)
 

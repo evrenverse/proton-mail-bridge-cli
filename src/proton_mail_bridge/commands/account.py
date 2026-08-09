@@ -237,6 +237,55 @@ def identity_set_default_cmd(ctx: click.Context, value: str) -> None:
     out_mod.out_ok(f"Default identity of {account.email}: {found.email}")
 
 
+@identity_group.command("discover")
+@click.option("--limit", default=300, show_default=True,
+              help="How many Sent messages to scan per account.")
+@click.option("--save", "do_save", is_flag=True, help="Write unknown addresses to the config.")
+@click.pass_context
+def identity_discover_cmd(ctx: click.Context, limit: int, do_save: bool) -> None:
+    """Find sender addresses by scanning the Sent folder (🟢).
+
+    The Bridge accepts every MAIL FROM and only validates at send time, so the Sent
+    folder is the only reliable source for which addresses this account can send from.
+    """
+    from proton_mail_bridge.core.config import Identity, resolve_accounts
+    from proton_mail_bridge.core.errors import BridgeError
+    from proton_mail_bridge.core.identity import account_identities, group_senders
+    from proton_mail_bridge.core.imap import ImapClient, for_accounts
+
+    path = config_path()
+    cfg = load_config(path)          # the file we mutate and save
+    endpoint = resolve_config().endpoint  # env overrides apply to the connection
+    accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="read")
+
+    def fn(account):
+        with ImapClient.connect(endpoint, account) as c:
+            # Never fall back to INBOX: there the From headers belong to the senders,
+            # and --save would store every correspondent as our own identity.
+            folder = c.special_folders().get("sent")
+            if not folder:
+                raise BridgeError(
+                    "config",
+                    "No Sent folder found",
+                    "The account exposes no \\Sent special-use folder — cannot discover "
+                    "sender addresses. Add identities manually with `account identity add`.",
+                )
+            senders = group_senders(c.sender_addresses(folder, limit))
+        known = {i.email.lower() for i in account_identities(account)}
+        added: list[str] = []
+        for rec in senders:
+            rec["known"] = rec["email"].lower() in known
+            if do_save and not rec["known"]:
+                account.identities.append(Identity(email=rec["email"], name=rec["name"]))
+                added.append(rec["email"])
+        return {"folder": folder, "senders": senders, "added": added}
+
+    results = for_accounts(accounts, fn)
+    if do_save:
+        save_config(cfg, path)
+    out_mod.out(results)
+
+
 def _autodetect_security(endpoint) -> None:
     """Banner probe per port; corrects the selection when the server speaks differently.
     (macOS Bridge: SMTP often ssl, IMAP starttls — not representable with a single value.)"""

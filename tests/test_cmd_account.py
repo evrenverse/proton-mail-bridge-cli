@@ -142,3 +142,96 @@ def test_identity_remove_rejects_blank_value(tmp_path, monkeypatch):
     account = load_config(path).accounts[0]
     assert len(account.identities) == 1
     assert account.default_identity == "kontakt"
+
+
+def _fake_sent_mailbox(monkeypatch, messages):
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox
+    box = FakeMailBox({"Sent": messages}, folder_flags={"Sent": ("\\Sent",)})
+    monkeypatch.setattr(
+        ImapClient, "connect", classmethod(lambda cls, ep, acc, **k: ImapClient(box, acc.email))
+    )
+
+
+def test_identity_discover_previews_without_writing(tmp_path, monkeypatch):
+    from proton_mail_bridge.core.config import load_config
+    from tests.conftest import FakeMessage
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    _fake_sent_mailbox(monkeypatch, [FakeMessage(from_="k@p.me"), FakeMessage(from_="k@p.me"),
+                                     FakeMessage(from_="a@p.me")])
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "discover"])
+    assert result.exit_code == 0
+    items = json.loads(result.output)[0]["items"]
+    senders = items["senders"]
+    assert items["folder"] == "Sent"
+    assert senders[0] == {"email": "k@p.me", "name": None, "count": 2, "known": False}
+    assert [s for s in senders if s["email"] == "a@p.me"][0]["known"] is True
+    assert items["added"] == []                             # nichts angelegt, nur gemeldet
+    assert load_config(path).accounts[0].identities == []   # ohne --save keine Änderung
+
+
+def test_identity_discover_save_adds_unknown_addresses(tmp_path, monkeypatch):
+    from proton_mail_bridge.core.config import load_config
+    from tests.conftest import FakeMessage
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    _fake_sent_mailbox(monkeypatch, [FakeMessage(from_="k@p.me"), FakeMessage(from_="a@p.me")])
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "discover", "--save"])
+    assert result.exit_code == 0
+    assert [i.email for i in load_config(path).accounts[0].identities] == ["k@p.me"]
+
+
+def test_identity_discover_save_twice_adds_no_duplicate(tmp_path, monkeypatch):
+    """A second --save must not re-add what is already configured — not even case-shifted,
+    because `identity remove` filters by exact case and would then delete the wrong entry."""
+    from proton_mail_bridge.core.config import load_config
+    from tests.conftest import FakeMessage
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    # the stored spelling comes first, so both sides of the comparison must fold case
+    for sender in ("K@P.me", "k@p.me", "K@P.me"):
+        _fake_sent_mailbox(monkeypatch, [FakeMessage(from_=sender)])
+        result = CliRunner().invoke(main, ["--json", "account", "identity", "discover", "--save"])
+        assert result.exit_code == 0
+    assert [i.email for i in load_config(path).accounts[0].identities] == ["K@P.me"]
+
+
+def test_identity_discover_refuses_when_there_is_no_sent_folder(tmp_path, monkeypatch):
+    """Without \\Sent, resolve_folder would fall back to INBOX — and --save would then
+    store every correspondent as our own identity."""
+    from proton_mail_bridge.core.config import load_config
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    box = FakeMailBox({"INBOX": [FakeMessage(from_="fremd@x.de")]})   # keine \\Sent-Flags
+    monkeypatch.setattr(
+        ImapClient, "connect", classmethod(lambda cls, ep, acc, **k: ImapClient(box, acc.email))
+    )
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "discover", "--save"])
+    assert result.exit_code == 0            # for_accounts meldet den Fehler pro Account
+    entry = json.loads(result.output)[0]
+    assert entry["ok"] is False
+    assert "Sent" in entry["error"]["detail"]
+    assert load_config(path).accounts[0].identities == []
+
+
+def test_identity_discover_connects_with_the_resolved_endpoint(tmp_path, monkeypatch):
+    """Env overrides must reach discover like every other network command."""
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    monkeypatch.setenv("PROTON_BRIDGE_HOST", "10.9.9.9")
+    seen = []
+    box = FakeMailBox({"Sent": [FakeMessage(from_="k@p.me")]}, folder_flags={"Sent": ("\\Sent",)})
+
+    def fake_connect(cls, ep, acc, **k):
+        seen.append(ep.host)
+        return ImapClient(box, acc.email)
+
+    monkeypatch.setattr(ImapClient, "connect", classmethod(fake_connect))
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "discover"])
+    assert result.exit_code == 0
+    assert seen == ["10.9.9.9"]

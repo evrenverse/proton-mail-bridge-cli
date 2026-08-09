@@ -40,6 +40,12 @@ class FakeAttachment:
 
 
 @dataclass
+class FakeAddress:
+    name: str = ""
+    email: str = ""
+
+
+@dataclass
 class FakeMessage:
     uid: str = "1"
     subject: str = "Container order"
@@ -54,6 +60,11 @@ class FakeMessage:
     html: str = "<p>We order 3 containers.</p>"
     headers: dict = field(default_factory=lambda: {"message-id": ("<m1@company.com>",)})
     attachments: list = field(default_factory=lambda: [FakeAttachment("invoice.pdf")])
+    from_values: object | None = None
+
+    def __post_init__(self):
+        if self.from_values is None:
+            self.from_values = FakeAddress(name="", email=self.from_)
 
 
 class _Folder:

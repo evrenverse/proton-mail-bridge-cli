@@ -128,3 +128,27 @@ def test_pick_reply_identity_falls_back_to_default():
 def test_own_addresses_covers_all_identities():
     acc = Account("A@p.me", "pw", identities=[Identity("K@p.me")])
     assert ident.own_addresses(acc) == {"a@p.me", "k@p.me"}
+
+
+def test_group_senders_counts_and_picks_the_common_name():
+    pairs = [
+        ("Kontakt", "k@p.me"),
+        ("", "k@p.me"),
+        ("Kontakt", "k@p.me"),
+        ("Buchhaltung", "r@p.me"),
+        ("", "K@P.ME"),                      # gleiche Adresse, andere Schreibweise
+        ("Chef", "Chef <c@p.me>"),           # vollständiger Header statt nackter Adresse
+    ]
+    got = ident.group_senders(pairs)
+    assert [(g["email"], g["count"]) for g in got] == [("k@p.me", 4), ("c@p.me", 1),
+                                                       ("r@p.me", 1)]
+    assert got[0]["name"] == "Kontakt"
+
+
+def test_group_senders_ignores_empty_addresses():
+    assert ident.group_senders([("", ""), ("X", "   ")]) == []
+
+
+def test_group_senders_without_any_name():
+    assert ident.group_senders([("", "k@p.me")]) == [{"email": "k@p.me", "name": None,
+                                                      "count": 1}]
