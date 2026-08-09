@@ -54,3 +54,37 @@ def test_send_returns_message_id():
     mid = session.send(msg)
     assert fake.sent == [msg]
     assert mid == msg["Message-ID"]
+
+
+def test_send_maps_invalid_return_path_to_a_bridge_error():
+    import smtplib
+
+    import pytest
+
+    from proton_mail_bridge.core.errors import BridgeError
+
+    class RefusingSMTP(FakeSMTP):
+        def send_message(self, msg):
+            raise smtplib.SMTPSenderRefused(550, b"Invalid Return Path", "fremd@x.de")
+
+    msg = mime.build_message(sender="fremd@x.de", to=["a@x.de"], cc=None, bcc=None,
+                             subject="S", body_text="b", body_html=None, attachments=None)
+    with pytest.raises(BridgeError) as exc:
+        SmtpSession(RefusingSMTP()).send(msg)
+    assert exc.value.type == "send"
+    assert "identity discover" in exc.value.detail
+
+
+def test_send_reraises_other_smtp_errors():
+    import smtplib
+
+    import pytest
+
+    class BrokenSMTP(FakeSMTP):
+        def send_message(self, msg):
+            raise smtplib.SMTPServerDisconnected("connection lost")
+
+    msg = mime.build_message(sender="me@p.me", to=["a@x.de"], cc=None, bcc=None,
+                             subject="S", body_text="b", body_html=None, attachments=None)
+    with pytest.raises(smtplib.SMTPServerDisconnected):
+        SmtpSession(BrokenSMTP()).send(msg)

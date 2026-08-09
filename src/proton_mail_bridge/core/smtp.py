@@ -41,5 +41,20 @@ class SmtpSession:
             pass
 
     def send(self, msg: EmailMessage) -> str:
-        self._smtp.send_message(msg)
+        import smtplib
+
+        from proton_mail_bridge.core.errors import BridgeError
+
+        try:
+            self._smtp.send_message(msg)
+        except smtplib.SMTPException as exc:
+            # The Bridge accepts every MAIL FROM and only rejects at send time.
+            if "return path" in str(exc).lower():
+                raise BridgeError(
+                    "send",
+                    "Sender rejected by the Bridge",
+                    f"{msg['From']} is not an address of this Proton account — "
+                    "check with `account identity discover`.",
+                ) from exc
+            raise
         return msg["Message-ID"]
