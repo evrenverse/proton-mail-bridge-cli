@@ -243,11 +243,12 @@ def test_identity_discover_save_with_nothing_added_does_not_rewrite_the_file(tmp
     path = tmp_path / "config.toml"
     raw = '# hand-added notes about this account\n[[accounts]]\nemail = "a@p.me"\npassword = "pw"\n'
     path.write_text(raw, encoding="utf-8")
+    before = path.read_bytes()  # as written: Windows text mode turns \n into \r\n
     monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
     _fake_sent_mailbox(monkeypatch, [FakeMessage(from_="a@p.me")])   # already known: login address
     result = CliRunner().invoke(main, ["--json", "account", "identity", "discover", "--save"])
     assert result.exit_code == 0
-    assert path.read_bytes() == raw.encode("utf-8")
+    assert path.read_bytes() == before
 
 
 def test_identity_discover_save_twice_adds_no_duplicate(tmp_path, monkeypatch):
