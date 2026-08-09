@@ -49,7 +49,8 @@ class SmtpSession:
             self._smtp.send_message(msg)
         except smtplib.SMTPException as exc:
             # The Bridge accepts every MAIL FROM and only rejects at send time.
-            if "return path" in str(exc).lower():
+            exc_lower = str(exc).lower()
+            if "return" in exc_lower and "path" in exc_lower:
                 raise BridgeError(
                     "send",
                     "Sender rejected by the Bridge",

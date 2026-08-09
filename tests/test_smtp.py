@@ -57,6 +57,7 @@ def test_send_returns_message_id():
 
 
 def test_send_maps_invalid_return_path_to_a_bridge_error():
+    """The Bridge accepts MAIL FROM at 250, rejects later with SMTPDataError."""
     import smtplib
 
     import pytest
@@ -65,7 +66,28 @@ def test_send_maps_invalid_return_path_to_a_bridge_error():
 
     class RefusingSMTP(FakeSMTP):
         def send_message(self, msg):
-            raise smtplib.SMTPSenderRefused(550, b"Invalid Return Path", "fremd@x.de")
+            msg_bytes = b"5.0.0 Error: transaction failed: 2001: Invalid Return Path"
+            raise smtplib.SMTPDataError(554, msg_bytes)
+
+    msg = mime.build_message(sender="fremd@x.de", to=["a@x.de"], cc=None, bcc=None,
+                             subject="S", body_text="b", body_html=None, attachments=None)
+    with pytest.raises(BridgeError) as exc:
+        SmtpSession(RefusingSMTP()).send(msg)
+    assert exc.value.type == "send"
+    assert "identity discover" in exc.value.detail
+
+
+def test_send_maps_invalid_return_path_hyphenated():
+    """Test that hyphenated spelling 'Return-Path' is also recognized."""
+    import smtplib
+
+    import pytest
+
+    from proton_mail_bridge.core.errors import BridgeError
+
+    class RefusingSMTP(FakeSMTP):
+        def send_message(self, msg):
+            raise smtplib.SMTPDataError(554, b"Invalid Return-Path")
 
     msg = mime.build_message(sender="fremd@x.de", to=["a@x.de"], cc=None, bcc=None,
                              subject="S", body_text="b", body_html=None, attachments=None)
