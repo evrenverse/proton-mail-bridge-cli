@@ -165,7 +165,8 @@ def test_draft_uses_identity(monkeypatch):
         cfgmod, "resolve_config",
         lambda *a, **k: Config(
             Endpoint(),
-            [Account("me@p.me", "pw", identities=[Identity("kontakt@p.me", label="kontakt")])],
+            [Account("me@p.me", "pw",
+                     identities=[Identity("kontakt@p.me", name="Kontakt", label="kontakt")])],
             "me@p.me",
         ),
     )
@@ -178,3 +179,4 @@ def test_draft_uses_identity(monkeypatch):
     )
     assert result.exit_code == 0
     assert len(mb.appended) == 1
+    assert b"From: Kontakt <kontakt@p.me>" in mb.appended[0][2]

@@ -117,7 +117,7 @@ class FakeMailBox:
         self.deleted.append(list(uid_list))
 
     def append(self, message_bytes, folder, dt=None, flag_set=None):
-        self.appended.append((folder, flag_set))
+        self.appended.append((folder, flag_set, message_bytes))
 
     def logout(self):
         pass
