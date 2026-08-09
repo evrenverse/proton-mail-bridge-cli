@@ -51,7 +51,7 @@ def describe_cmd(ctx: click.Context, path: tuple[str, ...]) -> None:
         return
     out_mod.out({
         "path": list(path),
-        "group": path[0],
+        "group": " ".join(path[:-1]),
         "command": path[-1],
         "help": (node.help or "").strip(),
         "options": [p.name for p in node.params if isinstance(p, click.Option)],

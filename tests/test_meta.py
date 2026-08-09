@@ -44,3 +44,16 @@ def test_describe_unknown_path_errors():
     result = CliRunner().invoke(main, ["--json", "describe", "account", "nope"])
     assert result.exit_code == 2
     assert json.loads(result.output)["error"]["title"] == "Unknown command"
+
+
+def test_describe_deep_group_reconstructs_real_invocation():
+    result = CliRunner().invoke(main, ["--json", "describe", "account", "identity", "add"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert f"{data['group']} {data['command']}" == "account identity add"
+
+
+def test_describe_past_leaf_command_errors():
+    result = CliRunner().invoke(main, ["--json", "describe", "message", "search", "extra"])
+    assert result.exit_code == 2
+    assert json.loads(result.output)["error"]["title"] == "Unknown command"
