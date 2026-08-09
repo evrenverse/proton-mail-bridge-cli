@@ -43,12 +43,12 @@ def test_read_mode_defaults_to_all_accounts():
     assert {a.email for a in got} == {"a@p.me", "b@p.me"}  # default_account does NOT restrict
 
 
-def test_identity_mode_uses_default_then_fails():
+def test_send_mode_uses_default_then_fails():
     multi = _config([Account("a@p.me", "1"), Account("b@p.me", "2")], default="b@p.me")
-    assert [a.email for a in cfg.resolve_accounts(multi, None, mode="identity")] == ["b@p.me"]
+    assert [a.email for a in cfg.resolve_accounts(multi, None, mode="send")] == ["b@p.me"]
     no_default = _config([Account("a@p.me", "1"), Account("b@p.me", "2")])
     with pytest.raises(AccountSelectionError):
-        cfg.resolve_accounts(no_default, None, mode="identity")
+        cfg.resolve_accounts(no_default, None, mode="send")
 
 
 def test_message_op_mode_requires_explicit_when_multiple():
@@ -60,7 +60,7 @@ def test_message_op_mode_requires_explicit_when_multiple():
 
 def test_explicit_all_returns_all():
     c = _config([Account("a@p.me", "1"), Account("b@p.me", "2")])
-    assert len(cfg.resolve_accounts(c, "all", mode="identity")) == 2
+    assert len(cfg.resolve_accounts(c, "all", mode="send")) == 2
 
 
 def test_save_load_roundtrip(tmp_path):

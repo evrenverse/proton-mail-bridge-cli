@@ -205,7 +205,7 @@ def find_account(config: Config, value: str) -> Account | None:
 def resolve_accounts(config: Config, account_arg: str | None, mode: str) -> list[Account]:
     """Account selection per command type.
 
-    mode: "read" (fan-out default), "identity" (sending: default_account allowed),
+    mode: "read" (fan-out default), "send" (sending: default_account allowed),
     "message_op" (UID ops: no default_account fallback).
     """
     if not config.accounts:
@@ -219,14 +219,24 @@ def resolve_accounts(config: Config, account_arg: str | None, mode: str) -> list
     if account_arg:
         found = find_account(config, account_arg)
         if not found:
+            if any(
+                i.email == account_arg or i.label == account_arg
+                for a in config.accounts
+                for i in a.identities
+            ):
+                raise AccountSelectionError(
+                    "config",
+                    "That is an identity, not an account",
+                    f"Use --identity {account_arg}.",
+                )
             raise AccountSelectionError("auth", "Unknown account", account_arg)
         return [found]
 
     if mode == "read":
         return list(config.accounts)
 
-    # identity / message_op: exactly one account required
-    if mode == "identity" and config.default_account:
+    # send / message_op: exactly one account required
+    if mode == "send" and config.default_account:
         found = find_account(config, config.default_account)
         if found:
             return [found]
@@ -235,6 +245,5 @@ def resolve_accounts(config: Config, account_arg: str | None, mode: str) -> list
     raise AccountSelectionError(
         "auth",
         "Multiple accounts, none selected",
-        "pass --account"
-        + (" or set one via `account set-default`" if mode == "identity" else ""),
+        "pass --account" + (" or set one via `account set-default`" if mode == "send" else ""),
     )

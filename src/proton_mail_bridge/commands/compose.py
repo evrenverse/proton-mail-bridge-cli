@@ -47,7 +47,7 @@ def send_cmd(
 
     cfg = cfgmod.resolve_config()
     arg = from_ or ctx.obj.get("account")
-    account = resolve_accounts(cfg, arg, mode="identity")[0]
+    account = resolve_accounts(cfg, arg, mode="send")[0]
     html = None
     if html_file:
         from pathlib import Path
@@ -83,7 +83,7 @@ def reply_cmd(ctx, uid, folder, reply_all, body, body_file, attach, dry_run, ass
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
-    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="identity")[0]
+    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
     with ImapClient.connect(cfg.endpoint, account) as c:
         original = c.fetch([uid], folder=folder, fmt="text", include_headers=True)[0]
     import re as _re
@@ -124,7 +124,7 @@ def forward_cmd(ctx, uid, folder, to, body, dry_run, assume_yes) -> None:
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
-    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="identity")[0]
+    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
     with ImapClient.connect(cfg.endpoint, account) as c:
         original = c.fetch([uid], folder=folder, fmt="text", include_headers=False)[0]
         atts: list[str | tuple[str, bytes, str | None]] = [
@@ -161,7 +161,7 @@ def draft_cmd(ctx, to, subject, body, body_file, attach, folder) -> None:
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
-    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="identity")[0]
+    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
     msg = mime.build_message(
         sender=account.email, to=_csv(to), cc=None, bcc=None, subject=subject,
         body_text=_body(body, body_file), body_html=None, attachments=list(attach),
