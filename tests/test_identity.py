@@ -38,13 +38,13 @@ def test_resolve_identity_by_label_picks_the_account():
     c = _config([Account("a@p.me", "1"),
                  Account("b@p.me", "2", identities=[Identity("k@p.me", label="kontakt")])])
     account, found = ident.resolve_identity(c, "kontakt", None)
-    assert account.email == "b@p.me"      # kein --account nötig
+    assert account.email == "b@p.me"      # no --account needed
     assert found.email == "k@p.me"
 
 
 def test_resolve_identity_by_address():
     c = _config([Account("a@p.me", "1", identities=[Identity("k@p.me")])])
-    _, found = ident.resolve_identity(c, "K@P.ME", None)   # Groß-/Kleinschreibung egal
+    _, found = ident.resolve_identity(c, "K@P.ME", None)   # case does not matter
     assert found.email == "k@p.me"
 
 
@@ -62,9 +62,9 @@ def test_unknown_identity_with_account_lists_only_that_account():
     with pytest.raises(AccountSelectionError) as exc:
         ident.resolve_identity(c, "kontakt", "a@p.me")
     detail = exc.value.detail
-    assert "known in a@p.me:" in detail                   # nennt das durchsuchte Konto
-    assert "kontakt" not in detail.split("known", 1)[1]   # nicht zugleich unbekannt und bekannt
-    assert "k@p.me" not in detail                         # fremdes Konto bleibt draußen
+    assert "known in a@p.me:" in detail                   # names the searched account
+    assert "kontakt" not in detail.split("known", 1)[1]   # not unknown and known at once
+    assert "k@p.me" not in detail                         # foreign account stays out
 
 
 def test_resolve_identity_ambiguous_requires_account():
@@ -93,6 +93,15 @@ def test_from_with_an_identity_value_hints_at_identity_flag():
     c = _config([Account("a@p.me", "1", identities=[Identity("k@p.me", label="kontakt")])])
     with pytest.raises(AccountSelectionError) as exc:
         resolve_accounts(c, "kontakt", mode="send")
+    assert "--identity" in exc.value.detail
+
+
+def test_from_with_a_case_shifted_identity_value_still_hints_at_identity_flag():
+    """match_identity folds case, so --identity Kontakt works — the error that teaches the
+    user to use --identity must fold case too, or it misreports 'Unknown account' instead."""
+    c = _config([Account("a@p.me", "1", identities=[Identity("k@p.me", label="kontakt")])])
+    with pytest.raises(AccountSelectionError) as exc:
+        resolve_accounts(c, "Kontakt", mode="send")
     assert "--identity" in exc.value.detail
 
 
@@ -136,8 +145,8 @@ def test_group_senders_counts_and_picks_the_common_name():
         ("", "k@p.me"),
         ("Kontakt", "k@p.me"),
         ("Buchhaltung", "r@p.me"),
-        ("", "K@P.ME"),                      # gleiche Adresse, andere Schreibweise
-        ("Chef", "Chef <c@p.me>"),           # vollständiger Header statt nackter Adresse
+        ("", "K@P.ME"),                      # same address, different casing
+        ("Chef", "Chef <c@p.me>"),           # full header instead of bare address
     ]
     got = ident.group_senders(pairs)
     assert [(g["email"], g["count"]) for g in got] == [("k@p.me", 4), ("c@p.me", 1),

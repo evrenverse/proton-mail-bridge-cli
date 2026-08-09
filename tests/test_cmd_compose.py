@@ -211,8 +211,8 @@ def test_reply_all_drops_every_own_address(monkeypatch):
         main, ["compose", "reply", "--uid", "1", "--all", "--body", "ok", "--yes"]
     )
     assert result.exit_code == 0
-    assert sent[0]["To"] == "supplier@company.com, other@x.de"  # kontakt@p.me raus
-    assert sent[0]["Cc"] == "cc@x.de"                            # me@p.me raus
+    assert sent[0]["To"] == "supplier@company.com, other@x.de"  # kontakt@p.me removed
+    assert sent[0]["Cc"] == "cc@x.de"                            # me@p.me removed
 
 
 def test_reply_identity_flag_overrides_automatic_choice(monkeypatch):

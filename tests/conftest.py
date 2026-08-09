@@ -104,9 +104,14 @@ class FakeMailBox:
         self.flagged: list = []
         self.deleted: list = []
         self.appended: list = []
+        self.fetch_calls: list = []
 
     def fetch(self, criteria="ALL", limit=None, mark_seen=False, bulk=True, reverse=False,
               headers_only=False):
+        self.fetch_calls.append(
+            {"criteria": criteria, "limit": limit, "mark_seen": mark_seen, "bulk": bulk,
+             "reverse": reverse, "headers_only": headers_only}
+        )
         msgs = list(self._store.get(self.folder.current, []))
         if reverse:
             msgs.reverse()

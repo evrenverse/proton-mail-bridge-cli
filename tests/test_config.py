@@ -128,3 +128,23 @@ def test_config_without_identities_still_loads(tmp_path):
     acc = cfg.load_config(path).accounts[0]
     assert acc.identities == []
     assert acc.default_identity is None
+
+
+def test_identities_parse_from_nested_table_toml(tmp_path):
+    """The hand-writable [[accounts.identities]] form, not just the inline-table one."""
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[[accounts]]\n'
+        'email = "a@p.me"\n'
+        'password = "pw"\n'
+        '\n'
+        '[[accounts.identities]]\n'
+        'email = "kontakt@p.me"\n'
+        'name = "Kontakt"\n'
+        'label = "kontakt"\n',
+        encoding="utf-8",
+    )
+    acc = cfg.load_config(path).accounts[0]
+    assert [(i.email, i.name, i.label) for i in acc.identities] == [
+        ("kontakt@p.me", "Kontakt", "kontakt"),
+    ]

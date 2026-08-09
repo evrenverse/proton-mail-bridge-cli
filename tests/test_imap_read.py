@@ -57,6 +57,11 @@ def test_sender_addresses_reads_the_display_name():
     named = FakeMessage(uid="1", from_="c@p.me",
                         from_values=FakeAddress(name="Chef", email="c@p.me"))
     plain = FakeMessage(uid="2", from_="k@p.me")
-    client = ImapClient(FakeMailBox({"Sent": [named, plain]}), account_email="me@p.me")
+    mailbox = FakeMailBox({"Sent": [named, plain]})
+    client = ImapClient(mailbox, account_email="me@p.me")
     assert client.sender_addresses("Sent", limit=None) == [("", "k@p.me"), ("Chef", "c@p.me")]
     assert client.sender_addresses("Sent", limit=1) == [("", "k@p.me")]  # newest first
+    # headers-only (no full body fetch) and mark_seen=False (Sent stays unread-state untouched)
+    for call in mailbox.fetch_calls:
+        assert call["headers_only"] is True
+        assert call["mark_seen"] is False
