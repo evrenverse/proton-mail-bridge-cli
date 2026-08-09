@@ -4,6 +4,7 @@ import click
 
 from proton_mail_bridge.core import config as cfgmod
 from proton_mail_bridge.core.config import resolve_accounts
+from proton_mail_bridge.core.identity import resolve_identity
 from proton_mail_bridge.core.smtp import SmtpSession
 from proton_mail_bridge.utils import mime
 from proton_mail_bridge.utils import output as out_mod
@@ -36,35 +37,38 @@ def _body(body: str | None, body_file: str | None) -> str:
 @click.option("--html-file", default=None)
 @click.option("--attach", multiple=True, type=click.Path(exists=True))
 @click.option("--from", "from_", default=None)
+@click.option("--identity", "identity", default=None,
+              help="Sender identity: address or label (see `account identity`).")
 @click.option("--dry-run", is_flag=True)
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def send_cmd(
-    ctx, to, cc, bcc, subject, body, body_file, html_file, attach, from_, dry_run, assume_yes
+    ctx, to, cc, bcc, subject, body, body_file, html_file, attach, from_, identity,
+    dry_run, assume_yes
 ) -> None:
     """Send mail (🟡). Verifies the send via the returned Message-ID."""
     from proton_mail_bridge.core import guard
 
     cfg = cfgmod.resolve_config()
-    arg = from_ or ctx.obj.get("account")
-    account = resolve_accounts(cfg, arg, mode="send")[0]
+    account, ident = resolve_identity(cfg, identity, from_ or ctx.obj.get("account"))
     html = None
     if html_file:
         from pathlib import Path
 
         html = Path(html_file).read_text(encoding="utf-8")
     msg = mime.build_message(
-        sender=account.email, to=_csv(to), cc=_csv(cc), bcc=_csv(bcc), subject=subject,
+        sender=ident.formatted(), to=_csv(to), cc=_csv(cc), bcc=_csv(bcc), subject=subject,
         body_text=_body(body, body_file), body_html=html, attachments=list(attach),
     )
     if dry_run:
-        out_mod.out({"dry_run": True, "from": account.email, "to": _csv(to),
-                     "subject": subject, "attachments": [a for a in attach]})
+        out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
+                     "to": _csv(to), "subject": subject, "attachments": [a for a in attach]})
         return
     guard.enforce(f"compose send → {to}", guard.CONFIRM, assume_yes=assume_yes)
     with SmtpSession.connect(cfg.endpoint, account) as s:
         message_id = s.send(msg)
-    out_mod.out({"ok": True, "message_id": message_id, "from": account.email, "to": _csv(to)})
+    out_mod.out({"ok": True, "message_id": message_id, "from": ident.email,
+                 "account": account.email, "to": _csv(to)})
 
 
 @compose_group.command("reply")
@@ -155,15 +159,17 @@ def forward_cmd(ctx, uid, folder, to, body, dry_run, assume_yes) -> None:
 @click.option("--body-file", default=None)
 @click.option("--attach", multiple=True, type=click.Path(exists=True))
 @click.option("--folder", default=None)
+@click.option("--identity", "identity", default=None,
+              help="Sender identity: address or label (see `account identity`).")
 @click.pass_context
-def draft_cmd(ctx, to, subject, body, body_file, attach, folder) -> None:
+def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity) -> None:
     """Store a draft in Drafts via IMAP APPEND (🟢)."""
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
-    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
+    account, ident = resolve_identity(cfg, identity, ctx.obj.get("account"))
     msg = mime.build_message(
-        sender=account.email, to=_csv(to), cc=None, bcc=None, subject=subject,
+        sender=ident.formatted(), to=_csv(to), cc=None, bcc=None, subject=subject,
         body_text=_body(body, body_file), body_html=None, attachments=list(attach),
     )
     with ImapClient.connect(cfg.endpoint, account) as c:
