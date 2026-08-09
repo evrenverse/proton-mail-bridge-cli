@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from proton_mail_bridge.core import config as cfg
-from proton_mail_bridge.core.config import Account, Config, Endpoint
+from proton_mail_bridge.core.config import Account, Config, Endpoint, Identity
 from proton_mail_bridge.core.errors import AccountSelectionError
 
 
@@ -87,3 +87,44 @@ def test_smtp_security_roundtrip(tmp_path):
     c = Config(endpoint=Endpoint(smtp_security="ssl"), accounts=[Account("a@p.me", "pw")])
     cfg.save_config(c, path)
     assert cfg.load_config(path).endpoint.smtp_security == "ssl"
+
+
+def test_identity_formatted_header():
+    assert Identity("a@p.me").formatted() == "a@p.me"
+    assert Identity("a@p.me", name="Reinigung Yell").formatted() == "Reinigung Yell <a@p.me>"
+    encoded = Identity("a@p.me", name="Ärger GmbH").formatted()
+    assert encoded.endswith("<a@p.me>")
+    assert "Ärger" not in encoded  # formataddr kodiert nicht-ASCII nach RFC 2047
+
+
+def test_identities_roundtrip(tmp_path):
+    path = tmp_path / "config.toml"
+    c = Config(
+        endpoint=Endpoint(),
+        accounts=[
+            Account(
+                "a@p.me", "pw", alias="work",
+                identities=[
+                    Identity("kontakt@p.me", name="Kontakt", label="kontakt"),
+                    Identity("rechnung@p.me"),
+                ],
+                default_identity="kontakt",
+            )
+        ],
+        default_account="a@p.me",
+    )
+    cfg.save_config(c, path)
+    acc = cfg.load_config(path).accounts[0]
+    assert acc.default_identity == "kontakt"
+    assert [(i.email, i.name, i.label) for i in acc.identities] == [
+        ("kontakt@p.me", "Kontakt", "kontakt"),
+        ("rechnung@p.me", None, None),
+    ]
+
+
+def test_config_without_identities_still_loads(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[[accounts]]\nemail = "a@p.me"\npassword = "pw"\n', encoding="utf-8")
+    acc = cfg.load_config(path).accounts[0]
+    assert acc.identities == []
+    assert acc.default_identity is None

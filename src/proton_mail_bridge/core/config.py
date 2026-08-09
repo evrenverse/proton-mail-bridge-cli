@@ -4,6 +4,7 @@ import os
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from email.utils import formataddr
 from pathlib import Path
 
 from proton_mail_bridge.core.errors import AccountSelectionError
@@ -25,10 +26,25 @@ class Endpoint:
 
 
 @dataclass
+class Identity:
+    """A sender address of an account. `label` is the short handle for `--identity`."""
+
+    email: str
+    name: str | None = None
+    label: str | None = None
+
+    def formatted(self) -> str:
+        """RFC-5322 From value; formataddr encodes non-ASCII names per RFC 2047."""
+        return formataddr((self.name, self.email)) if self.name else self.email
+
+
+@dataclass
 class Account:
     email: str
     password: str
     alias: str | None = None
+    identities: list[Identity] = field(default_factory=list)
+    default_identity: str | None = None  # label or email of an entry in `identities`
 
 
 @dataclass
@@ -74,7 +90,16 @@ def load_config(path: Path | None = None) -> Config:
         timeout=float(ep.get("timeout", 30.0)),
     )
     accounts = [
-        Account(email=a["email"], password=a.get("password", ""), alias=a.get("alias"))
+        Account(
+            email=a["email"],
+            password=a.get("password", ""),
+            alias=a.get("alias"),
+            identities=[
+                Identity(email=i["email"], name=i.get("name"), label=i.get("label"))
+                for i in a.get("identities", [])
+            ],
+            default_identity=a.get("default_identity"),
+        )
         for a in raw.get("accounts", [])
     ]
     return Config(endpoint=endpoint, accounts=accounts, default_account=raw.get("default_account"))
@@ -116,6 +141,30 @@ def resolve_config(
     return config
 
 
+def _account_dict(account: Account) -> dict:
+    """Scalars first, sub-tables last — tomli_w requires that order."""
+    data: dict = {
+        k: v
+        for k, v in {
+            "email": account.email,
+            "password": account.password,
+            "alias": account.alias,
+            "default_identity": account.default_identity,
+        }.items()
+        if v is not None
+    }
+    if account.identities:
+        data["identities"] = [
+            {
+                k: v
+                for k, v in {"email": i.email, "name": i.name, "label": i.label}.items()
+                if v is not None
+            }
+            for i in account.identities
+        ]
+    return data
+
+
 def save_config(config: Config, path: Path | None = None) -> Path:
     import tomli_w
 
@@ -128,11 +177,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
             "security": config.endpoint.security,
             "timeout": config.endpoint.timeout,
         },
-        "accounts": [
-            {k: v for k, v in {"email": a.email, "password": a.password, "alias": a.alias}.items()
-             if v is not None}
-            for a in config.accounts
-        ],
+        "accounts": [_account_dict(a) for a in config.accounts],
     }
     if config.endpoint.smtp_security:
         data["endpoint"]["smtp_security"] = config.endpoint.smtp_security
