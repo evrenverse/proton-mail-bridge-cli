@@ -26,24 +26,36 @@ def fields_cmd(ctx: click.Context, name: str) -> None:
 
 
 @click.command("describe")
-@click.argument("group")
-@click.argument("command")
+@click.argument("path", nargs=-1, required=True)
 @click.pass_context
-def describe_cmd(ctx: click.Context, group: str, command: str) -> None:
-    """Shows options/arguments of a command from the click tree."""
+def describe_cmd(ctx: click.Context, path: tuple[str, ...]) -> None:
+    """Shows options/arguments of a command from the click tree.
+
+    Walks nested groups: `describe account identity add`. Naming a group instead of a
+    command lists that group's commands.
+    """
     from proton_mail_bridge.cli import main as root
 
-    grp = root.commands.get(group)
-    if not isinstance(grp, click.Group) or command not in grp.commands:
-        out_mod.out_err("not_found", "Unknown command", f"{group} {command}", exit_code=2)
+    node: click.Command = root
+    for name in path:
+        if not isinstance(node, click.Group) or name not in node.commands:
+            out_mod.out_err("not_found", "Unknown command", " ".join(path), exit_code=2)
+            return
+        node = node.commands[name]
+    if isinstance(node, click.Group):
+        out_mod.out({
+            "path": list(path),
+            "help": (node.help or "").strip(),
+            "commands": sorted(node.commands),
+        })
         return
-    cmd = grp.commands[command]
     out_mod.out({
-        "group": group,
-        "command": command,
-        "help": (cmd.help or "").strip(),
-        "options": [p.name for p in cmd.params if isinstance(p, click.Option)],
-        "arguments": [p.name for p in cmd.params if isinstance(p, click.Argument)],
+        "path": list(path),
+        "group": path[0],
+        "command": path[-1],
+        "help": (node.help or "").strip(),
+        "options": [p.name for p in node.params if isinstance(p, click.Option)],
+        "arguments": [p.name for p in node.params if isinstance(p, click.Argument)],
     })
 
 
