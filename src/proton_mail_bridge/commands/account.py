@@ -175,9 +175,14 @@ def identity_add_cmd(
     path = config_path()
     cfg = load_config(path)
     account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
-    if account.email == email or any(i.email == email for i in account.identities):
+    needle = email.strip().lower()
+    if account.email.lower() == needle or any(
+        i.email.lower() == needle for i in account.identities
+    ):
         out_mod.out_err("config", "Identity already exists", email)
-    if label and any(i.label == label for i in account.identities):
+    if label and any(
+        i.label and i.label.lower() == label.strip().lower() for i in account.identities
+    ):
         out_mod.out_err("config", "Label already used", label)
     account.identities.append(Identity(email=email, name=name, label=label))
     save_config(cfg, path)
@@ -193,6 +198,8 @@ def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> Non
     from proton_mail_bridge.core import guard
     from proton_mail_bridge.core.identity import resolve_identity
 
+    if not value.strip():
+        out_mod.out_err("config", "Identity value required", "VALUE must not be blank.")
     guard.enforce(f"account identity remove {value}", guard.CONFIRM, assume_yes=assume_yes)
     path = config_path()
     cfg = load_config(path)
@@ -204,7 +211,10 @@ def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> Non
             f"{found.email} is the account's own Bridge login address.",
         )
     account.identities = [i for i in account.identities if i.email != found.email]
-    if account.default_identity in (found.email, found.label):
+    stale = {found.email.lower()}
+    if found.label:
+        stale.add(found.label.lower())
+    if account.default_identity and account.default_identity.lower() in stale:
         account.default_identity = None
     save_config(cfg, path)
     out_mod.out_ok(f"Identity {found.email} removed from {account.email}.")
@@ -217,6 +227,8 @@ def identity_set_default_cmd(ctx: click.Context, value: str) -> None:
     """Set the default sender identity of an account."""
     from proton_mail_bridge.core.identity import resolve_identity
 
+    if not value.strip():
+        out_mod.out_err("config", "Identity value required", "VALUE must not be blank.")
     path = config_path()
     cfg = load_config(path)
     account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
