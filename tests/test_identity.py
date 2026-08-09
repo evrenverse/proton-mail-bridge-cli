@@ -56,6 +56,17 @@ def test_resolve_identity_unknown_lists_known_ones():
     assert "identity add" in exc.value.detail
 
 
+def test_unknown_identity_with_account_lists_only_that_account():
+    c = _config([Account("a@p.me", "1"),
+                 Account("b@p.me", "2", identities=[Identity("k@p.me", label="kontakt")])])
+    with pytest.raises(AccountSelectionError) as exc:
+        ident.resolve_identity(c, "kontakt", "a@p.me")
+    detail = exc.value.detail
+    assert "known in a@p.me:" in detail                   # nennt das durchsuchte Konto
+    assert "kontakt" not in detail.split("known", 1)[1]   # nicht zugleich unbekannt und bekannt
+    assert "k@p.me" not in detail                         # fremdes Konto bleibt draußen
+
+
 def test_resolve_identity_ambiguous_requires_account():
     c = _config([Account("a@p.me", "1", identities=[Identity("k@p.me", label="kontakt")]),
                  Account("b@p.me", "2", identities=[Identity("k2@p.me", label="kontakt")])])

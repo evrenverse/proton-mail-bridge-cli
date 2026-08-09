@@ -62,10 +62,14 @@ def resolve_identity(
         if found:
             hits.append((account, found))
     if not hits:
+        # Scoped to the pool: listing identities of accounts that were not searched would
+        # declare the very value unknown and known at once.
+        known = [i.label or i.email for a in pool for i in account_identities(a)]
+        scope = f" in {', '.join(a.email for a in pool)}" if account_arg else ""
         raise AccountSelectionError(
             "config",
             "Unknown identity",
-            f"{identity_arg} — known: {', '.join(known_identity_names(config))}. "
+            f"{identity_arg} — known{scope}: {', '.join(known)}. "
             "Add it with `account identity add`.",
         )
     if len(hits) > 1:
