@@ -9,3 +9,6 @@ build/
 *.egg-info/
 .env
 TODO.md
+# Local planning artifacts (specs/plans) — may reference real mailboxes, never publish.
+docs/superpowers/
+.superpowers/
