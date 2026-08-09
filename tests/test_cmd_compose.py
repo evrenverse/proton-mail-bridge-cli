@@ -268,3 +268,45 @@ def test_forward_uses_the_addressed_identity(monkeypatch):
     )
     assert result.exit_code == 0
     assert sent[0]["From"] == "Kontakt <kontakt@p.me>"
+
+
+def test_forward_reads_the_identity_from_delivered_to(monkeypatch):
+    """Pins include_headers=True: without the headers the Delivered-To address is invisible."""
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox, FakeMessage
+    msg = FakeMessage(
+        to=("wer@x.de",),
+        headers={"message-id": ("<m1@company.com>",),
+                 "delivered-to": ("Kontakt <kontakt@p.me>",)},
+    )
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": [msg]}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["compose", "forward", "--uid", "1", "--to", "x@y.de", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert sent[0]["From"] == "Kontakt <kontakt@p.me>"
+
+
+def test_reply_to_a_missing_uid_names_the_mailbox(monkeypatch):
+    """An --identity may retarget the account, so the error must say where we looked."""
+    sent = []
+    _patch(monkeypatch, sent)
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox({"INBOX": []}), acc.email)),
+    )
+    result = CliRunner().invoke(
+        main, ["--json", "compose", "reply", "--uid", "99", "--body", "ok", "--yes"]
+    )
+    assert result.exit_code != 0
+    assert sent == []
+    error = json.loads(result.output)["error"]
+    assert error["title"] == "Message not found"
+    assert error["detail"] == "uid=99 in INBOX of me@p.me"

@@ -18,6 +18,17 @@ def _csv(value: str | None) -> list[str]:
     return [x.strip() for x in value.split(",") if x.strip()] if value else []
 
 
+def _fetch_original(client, uid: str, folder: str, account_email: str) -> dict:
+    """Original message for reply/forward. Names the mailbox we looked in when the UID is
+    missing — with `--identity` the account may not be the one the caller had in mind."""
+    found = client.fetch([uid], folder=folder, fmt="text", include_headers=True)
+    if not found:
+        out_mod.out_err(
+            "not_found", "Message not found", f"uid={uid} in {folder} of {account_email}"
+        )
+    return found[0]
+
+
 def _body(body: str | None, body_file: str | None) -> str:
     if body_file:
         from pathlib import Path
@@ -93,7 +104,7 @@ def reply_cmd(
     cfg = cfgmod.resolve_config()
     account, chosen = resolve_identity(cfg, identity, ctx.obj.get("account"))
     with ImapClient.connect(cfg.endpoint, account) as c:
-        original = c.fetch([uid], folder=folder, fmt="text", include_headers=True)[0]
+        original = _fetch_original(c, uid, folder, account.email)
     # explicit --identity wins; otherwise answer from the address the mail was sent to
     ident = chosen if identity else pick_reply_identity(account, original)
     import re as _re
@@ -116,7 +127,8 @@ def reply_cmd(
         out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
                      "to": recipients, "cc": cc_list, "subject": msg["Subject"]})
         return
-    guard.enforce(f"compose reply uid={uid}", guard.CONFIRM, assume_yes=assume_yes)
+    guard.enforce(f"compose reply uid={uid} ({account.email})", guard.CONFIRM,
+                  assume_yes=assume_yes)
     with SmtpSession.connect(cfg.endpoint, account) as s:
         message_id = s.send(msg)
     out_mod.out({"ok": True, "message_id": message_id, "from": ident.email,
@@ -142,7 +154,7 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
     cfg = cfgmod.resolve_config()
     account, chosen = resolve_identity(cfg, identity, ctx.obj.get("account"))
     with ImapClient.connect(cfg.endpoint, account) as c:
-        original = c.fetch([uid], folder=folder, fmt="text", include_headers=True)[0]
+        original = _fetch_original(c, uid, folder, account.email)
         atts: list[str | tuple[str, bytes, str | None]] = [
             (a.filename, a.payload, a.content_type) for a in c.attachments(uid, folder=folder)
         ]
@@ -160,7 +172,8 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
         out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
                      "to": _csv(to), "subject": msg["Subject"]})
         return
-    guard.enforce(f"compose forward uid={uid} → {to}", guard.CONFIRM, assume_yes=assume_yes)
+    guard.enforce(f"compose forward uid={uid} → {to} ({account.email})", guard.CONFIRM,
+                  assume_yes=assume_yes)
     with SmtpSession.connect(cfg.endpoint, account) as s:
         message_id = s.send(msg)
     out_mod.out({"ok": True, "message_id": message_id, "from": ident.email,
