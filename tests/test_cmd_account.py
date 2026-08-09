@@ -51,3 +51,54 @@ def test_remove_by_alias_clears_stale_default(tmp_path, monkeypatch):
     loaded = load_config(path)
     assert loaded.accounts == []
     assert loaded.default_account is None
+
+
+def test_identity_add_and_list(tmp_path, monkeypatch):
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    add = CliRunner().invoke(main, ["account", "identity", "add", "--email", "k@p.me",
+                                    "--name", "Kontakt", "--label", "kontakt"])
+    assert add.exit_code == 0
+    result = CliRunner().invoke(main, ["--json", "account", "list"])
+    row = json.loads(result.output)["accounts"][0]
+    assert {i["email"] for i in row["identities"]} == {"a@p.me", "k@p.me"}   # Login implizit
+    assert row["default_identity"] is None
+
+
+def test_identity_add_rejects_duplicates(tmp_path, monkeypatch):
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    CliRunner().invoke(main, ["account", "identity", "add", "--email", "k@p.me",
+                              "--label", "kontakt"])
+    dup_mail = CliRunner().invoke(main, ["--json", "account", "identity", "add",
+                                         "--email", "k@p.me"])
+    assert dup_mail.exit_code != 0
+    dup_label = CliRunner().invoke(main, ["--json", "account", "identity", "add",
+                                          "--email", "x@p.me", "--label", "kontakt"])
+    assert dup_label.exit_code != 0
+
+
+def test_identity_set_default_and_remove(tmp_path, monkeypatch):
+    from proton_mail_bridge.core.config import load_config
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    CliRunner().invoke(main, ["account", "identity", "add", "--email", "k@p.me",
+                              "--label", "kontakt"])
+    assert CliRunner().invoke(main, ["account", "identity", "set-default",
+                                     "kontakt"]).exit_code == 0
+    assert load_config(path).accounts[0].default_identity == "kontakt"
+    remove = CliRunner().invoke(main, ["account", "identity", "remove", "kontakt", "--yes"])
+    assert remove.exit_code == 0
+    account = load_config(path).accounts[0]
+    assert account.identities == []
+    assert account.default_identity is None   # veralteter Default wird geleert
+
+
+def test_identity_remove_refuses_the_login_address(tmp_path, monkeypatch):
+    path = _seed(tmp_path)
+    monkeypatch.setenv("PROTON_BRIDGE_CONFIG", str(path))
+    result = CliRunner().invoke(
+        main, ["--json", "account", "identity", "remove", "a@p.me", "--yes"]
+    )
+    assert result.exit_code != 0
+    assert "login" in json.loads(result.output)["error"]["detail"].lower()

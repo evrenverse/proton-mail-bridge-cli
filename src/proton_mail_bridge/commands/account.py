@@ -21,10 +21,21 @@ def account_group() -> None:
 @account_group.command("list")
 @click.pass_context
 def list_cmd(ctx: click.Context) -> None:
-    """List configured accounts."""
+    """List configured accounts including their sender identities."""
+    from proton_mail_bridge.core.identity import account_identities
+
     cfg = load_config(config_path())
     rows = [
-        {"email": a.email, "alias": a.alias, "default": a.email == cfg.default_account}
+        {
+            "email": a.email,
+            "alias": a.alias,
+            "default": a.email == cfg.default_account,
+            "default_identity": a.default_identity,
+            "identities": [
+                {"email": i.email, "name": i.name, "label": i.label}
+                for i in account_identities(a)
+            ],
+        }
         for a in cfg.accounts
     ]
     out_mod.out({"accounts": rows, "count": len(rows)})
@@ -143,6 +154,75 @@ def test_cmd(ctx: click.Context) -> None:
         return {"imap": "ok", "smtp": "ok"}
 
     out_mod.out(for_accounts(accounts, fn))
+
+
+@account_group.group("identity")
+def identity_group() -> None:
+    """Sender identities (own addresses) of an account."""
+
+
+@identity_group.command("add")
+@click.option("--email", required=True)
+@click.option("--name", default=None, help="Display name for the From header.")
+@click.option("--label", default=None, help="Short handle for `--identity`.")
+@click.pass_context
+def identity_add_cmd(
+    ctx: click.Context, email: str, name: str | None, label: str | None
+) -> None:
+    """Add a sender identity to an account (🟢)."""
+    from proton_mail_bridge.core.config import Identity, resolve_accounts
+
+    path = config_path()
+    cfg = load_config(path)
+    account = resolve_accounts(cfg, ctx.obj.get("account"), mode="send")[0]
+    if account.email == email or any(i.email == email for i in account.identities):
+        out_mod.out_err("config", "Identity already exists", email)
+    if label and any(i.label == label for i in account.identities):
+        out_mod.out_err("config", "Label already used", label)
+    account.identities.append(Identity(email=email, name=name, label=label))
+    save_config(cfg, path)
+    out_mod.out_ok(f"Identity {email} added to {account.email}.")
+
+
+@identity_group.command("remove")
+@click.argument("value")
+@click.option("--yes", "assume_yes", is_flag=True)
+@click.pass_context
+def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> None:
+    """Remove a sender identity (🟡)."""
+    from proton_mail_bridge.core import guard
+    from proton_mail_bridge.core.identity import resolve_identity
+
+    guard.enforce(f"account identity remove {value}", guard.CONFIRM, assume_yes=assume_yes)
+    path = config_path()
+    cfg = load_config(path)
+    account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
+    if not any(i.email == found.email for i in account.identities):
+        out_mod.out_err(
+            "config",
+            "Cannot remove that identity",
+            f"{found.email} is the account's own Bridge login address.",
+        )
+    account.identities = [i for i in account.identities if i.email != found.email]
+    if account.default_identity in (found.email, found.label):
+        account.default_identity = None
+    save_config(cfg, path)
+    out_mod.out_ok(f"Identity {found.email} removed from {account.email}.")
+
+
+@identity_group.command("set-default")
+@click.argument("value")
+@click.pass_context
+def identity_set_default_cmd(ctx: click.Context, value: str) -> None:
+    """Set the default sender identity of an account."""
+    from proton_mail_bridge.core.identity import resolve_identity
+
+    path = config_path()
+    cfg = load_config(path)
+    account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
+    account.default_identity = found.label or found.email
+    save_config(cfg, path)
+    out_mod.out_ok(f"Default identity of {account.email}: {found.email}")
 
 
 def _autodetect_security(endpoint) -> None:
