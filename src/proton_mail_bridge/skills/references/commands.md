@@ -12,7 +12,7 @@ Global flags go **before** the group: `pmb --json --account <val> <group> <comma
 - `pmb --json account info [--account V|all]` — shows real folder names/special-use map
 - `pmb --json account test [--account V|all]` — login test
 - `pmb --json --account A account identity add --email E [--name N --label L]`
-- `pmb --json --account A account identity remove <label|email>`
+- `pmb --json --account A account identity remove <label|email> [--yes]` 🟡
 - `pmb --json --account A account identity set-default <label|email>`
 - `pmb --json [--account A] account identity discover [--limit N --save]` — scans the Sent
   folder for sender addresses; fans out over all accounts without `--account`

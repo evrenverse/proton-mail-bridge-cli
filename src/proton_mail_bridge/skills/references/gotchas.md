@@ -37,7 +37,9 @@ Sorting/threading happens client-side; `pmb --json account info` shows **no** qu
   via IMAP APPEND (that duplicates Sent).
 - **From address**: every address of your own Proton account works, even with the Bridge in
   **combined-addresses mode** (one login covers all addresses). Configure them once via
-  `pmb account identity discover --save`, then select with `--identity <label|address>`.
+  `pmb account identity discover --save` (fills in email/name; it never invents labels — add
+  one via `account identity add --label`), then select with `--identity <address>` (or
+  `<label>` once one is set).
 - Foreign addresses (e.g. SimpleLogin aliases) are **not** allowed → the Bridge answers with
   "Invalid Return Path".
 - **`MAIL FROM` is no validation**: the Bridge answers `250 … Roger, accepting mail from <…>`

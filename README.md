@@ -58,13 +58,16 @@ A Proton account can own several addresses. With the Bridge in combined-addresse
 single login covers all of them:
 
 ```bash
-pmb --json account identity discover          # preview: senders found in Sent
-pmb --json account identity discover --save   # write them into the config
-pmb account identity set-default kontakt      # default sender for this account
-pmb --json compose send --identity kontakt --to a@x.de --subject S --body B --dry-run
+pmb --json account identity discover        # preview: senders found in Sent
+pmb --json account identity discover --save # write them into the config
+pmb account identity set-default kontakt@proton.me  # default sender for this account
+pmb --json compose send --identity kontakt@proton.me --to a@x.de --subject S --body B --dry-run
 ```
 
-`reply` and `forward` answer from the address the original mail was sent to.
+`discover` fills in email/name only — it never invents labels. Labels come from
+`account identity add --label` (or editing the config file); use the address with
+`--identity`/`set-default` otherwise. `reply` and `forward` answer from the address the
+original mail was sent to.
 
 ## WSL → Windows bridge
 
