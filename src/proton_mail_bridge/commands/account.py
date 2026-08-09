@@ -204,13 +204,13 @@ def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> Non
     path = config_path()
     cfg = load_config(path)
     account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
-    if not any(i.email == found.email for i in account.identities):
+    if not any(i is found for i in account.identities):
         out_mod.out_err(
             "config",
             "Cannot remove that identity",
             f"{found.email} is the account's own Bridge login address.",
         )
-    account.identities = [i for i in account.identities if i.email != found.email]
+    account.identities = [i for i in account.identities if i is not found]
     stale = {found.email.lower()}
     if found.label:
         stale.add(found.label.lower())
@@ -281,7 +281,7 @@ def identity_discover_cmd(ctx: click.Context, limit: int, do_save: bool) -> None
         return {"folder": folder, "senders": senders, "added": added}
 
     results = for_accounts(accounts, fn)
-    if do_save:
+    if do_save and any(r.get("items", {}).get("added") for r in results):
         save_config(cfg, path)
     out_mod.out(results)
 

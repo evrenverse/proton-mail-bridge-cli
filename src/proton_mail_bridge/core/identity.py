@@ -37,9 +37,9 @@ def default_identity(account: Account) -> Identity:
     return match_identity(identities, account.email) or Identity(email=account.email)
 
 
-def known_identity_names(config: Config) -> list[str]:
-    """Labels (or addresses, when unlabelled) of every identity — for error messages."""
-    return [i.label or i.email for a in config.accounts for i in account_identities(a)]
+def known_identity_names(accounts: list[Account]) -> list[str]:
+    """Labels (or addresses, when unlabelled) of every identity in `accounts` — error messages."""
+    return [i.label or i.email for a in accounts for i in account_identities(a)]
 
 
 def resolve_identity(
@@ -66,7 +66,7 @@ def resolve_identity(
     if not hits:
         # Scoped to the pool: listing identities of accounts that were not searched would
         # declare the very value unknown and known at once.
-        known = [i.label or i.email for a in pool for i in account_identities(a)]
+        known = known_identity_names(pool)
         scope = f" in {', '.join(a.email for a in pool)}" if account_arg else ""
         raise AccountSelectionError(
             "config",

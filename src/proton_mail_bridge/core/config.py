@@ -220,7 +220,8 @@ def resolve_accounts(config: Config, account_arg: str | None, mode: str) -> list
         found = find_account(config, account_arg)
         if not found:
             if any(
-                i.email == account_arg or i.label == account_arg
+                i.email.lower() == account_arg.lower()
+                or (i.label and i.label.lower() == account_arg.lower())
                 for a in config.accounts
                 for i in a.identities
             ):
