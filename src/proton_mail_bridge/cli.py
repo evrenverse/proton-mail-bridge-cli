@@ -21,7 +21,10 @@ class _BridgeCli(click.Group):
             if ctx.obj and ctx.obj.get("as_json"):
                 out_mod.out_err("usage", "Invalid invocation", exc.format_message(), exit_code=2)
             raise
-        except (click.ClickException, click.Abort):
+        except (click.ClickException, click.Abort, click.exceptions.Exit):
+            # Exit is click's control flow for --help/--version and inherits from RuntimeError:
+            # without this it lands in the catch-all below and turns `<group> --help` into a
+            # failure with a bogus error object -- on the very path the docs point agents to.
             raise
         except Exception as exc:
             # contract: agents get JSON, never a raw traceback

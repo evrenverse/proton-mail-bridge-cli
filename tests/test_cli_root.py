@@ -19,6 +19,24 @@ def test_help_lists_groups():
         assert group in result.output
 
 
+def test_help_below_the_root_succeeds():
+    """`<group> --help` is the documented discovery path. click signals it with Exit, which
+    inherits from RuntimeError -- the catch-all used to swallow it and report a failure."""
+    for path in (["account", "--help"], ["account", "identity", "--help"],
+                 ["account", "identity", "add", "--help"], ["message", "move", "--help"],
+                 ["fields", "--help"]):
+        result = CliRunner().invoke(main, path)
+        assert result.exit_code == 0, f"{path}: {result.output}"
+        assert "Usage:" in result.output
+        assert "error" not in result.output
+
+
+def test_json_help_stays_free_of_an_error_object():
+    result = CliRunner().invoke(main, ["--json", "message", "delete", "--help"])
+    assert result.exit_code == 0
+    assert '"ok": false' not in result.output
+
+
 def test_unexpected_exception_keeps_json_contract(monkeypatch):
     """No raw traceback for agents — every error arrives as JSON (macOS smoke finding)."""
     import json
