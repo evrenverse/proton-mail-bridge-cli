@@ -65,8 +65,13 @@ Commands without the flag change nothing (`search`, `read`, `list`, `mailbox lis
     scope, so the hit count no longer depends on the limit
   - `--max-fetch N`: stop the client-side scan after N fetched messages (0 = no budget)
   - every result carries a `search` block next to `items`: `candidates` (server-side matches in
-    scope), `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`.
-    `truncated: true` = the answer is incomplete, and the reason says which knob to turn
+    scope), `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`,
+    `skipped_folders`. `truncated: true` = the answer is incomplete, and the reason says which
+    knob to turn
+  - `--all-folders` walks every folder except All Mail (read-only duplicate view, and the
+    server does not list folders in a stable order — without the skip it is luck whether the
+    UIDs come back writable), deduplicated by Message-ID, asking each folder only for the
+    matches still missing
   - `--attachment-name S`: case-insensitive substring of an attachment filename. `--text`
     reads bodies only, so this is the way to find a document that arrived as a bare attachment
   - `--attachment-text S`: substring of the text *inside* a PDF attachment. Fetches and parses

@@ -39,7 +39,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
   - no `--folder` → `All Mail` (complete view, deduplicated by Message-ID); also contains
     Spam/Trash and is **read-only** — searching there is right, writing there is refused
   - "sent to X" → `--folder Sent`; "received from X" → `--folder INBOX`
-  - `--all-folders` deduplicates by Message-ID (useful when the scope is unclear)
+  - `--all-folders` walks every folder *except* All Mail and deduplicates by Message-ID —
+    use it when the scope is unclear, and whenever the UIDs have to be writable
   - The logical names `Sent`/`INBOX`/`All Mail` always work; `pmb --json account info` is only
     needed to see the exact (possibly localized) folder name
 - **`--limit` bounds the matches, not the fetch.** A search with a client-side criterion
@@ -50,7 +51,7 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
   ```json
   {"account": "…", "ok": true,
    "search": {"candidates": 4321, "scanned": 4321, "truncated": false, "limit": 50,
-              "folders": 1},
+              "folders": 1, "skipped_folders": []},
    "items": […]}
   ```
 

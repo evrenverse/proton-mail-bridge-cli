@@ -202,3 +202,22 @@ def test_all_folders_deduplicates_across_folders_without_losing_hits(monkeypatch
                  "--limit", "0", "--ids-only"])
     assert [r["uid"] for r in data["items"]] == ["3", "2", "1"]   # each mail exactly once
     assert data["search"]["truncated"] is False
+
+
+def test_all_folders_skips_all_mail_so_the_uids_are_usable(monkeypatch):
+    """All Mail answers first and is read-only: --ids-only would hand back UIDs in the one
+    folder no write can touch, which is the trap --all-folders exists to avoid."""
+    real = _msg(1, bulk=True)
+    copy = _msg(1, bulk=True)
+    copy.uid = "900"
+    mb = FakeMailBox({"All Mail": [copy], "INBOX": [real]}, {"All Mail": ("\\All",)})
+    monkeypatch.setattr(cfgmod, "resolve_config",
+                        lambda *a, **k: Config(Endpoint(), [Account("a@p.me", "pw")], "a@p.me"))
+    monkeypatch.setattr(
+        ImapClient, "connect", classmethod(lambda cls, ep, acc, **k: ImapClient(mb, acc.email))
+    )
+    data = _run(["message", "search", "--all-folders", "--header", "X-Campaign:bulk",
+                 "--limit", "0", "--ids-only"])
+    assert [(r["folder"], r["uid"]) for r in data["items"]] == [("INBOX", "1")]
+    assert data["search"]["skipped_folders"] == ["All Mail"]
+    assert data["search"]["folders"] == 1

@@ -136,7 +136,8 @@ def list_cmd(ctx, folder, limit, offset, unread, since) -> None:
 @select_options
 @click.option("--folder", default=None, help="Folder; without it: All Mail (everything).")
 @click.option("--all-folders", "all_folders", is_flag=True,
-              help="Iterate over all folders (dedup).")
+              help="Iterate over every folder except All Mail (a read-only duplicate view), "
+                   "deduplicated by Message-ID — the folder-wise view write ops need.")
 @click.option("--with-body", is_flag=True)
 @click.option("--with-attachments", is_flag=True)
 @click.option("--ids-only", "ids_only", is_flag=True,
@@ -198,8 +199,14 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
             folders = c.list_folders() if all_folders else [c.resolve_folder(folder, "all")]
             recs: list[dict] = []
             seen: set[str] = set()
-            agg: dict = {"candidates": 0, "scanned": 0, "truncated": False}
+            agg: dict = {"candidates": 0, "scanned": 0, "truncated": False,
+                         "skipped_folders": []}
             for f in folders:
+                # the point of --all-folders is the folder-wise view; All Mail would answer
+                # first and hand back UIDs in the one folder nothing can be written to
+                if all_folders and c.is_all_mail(f):
+                    agg["skipped_folders"].append(f)
+                    continue
                 # ask each folder only for what is still missing: with 35 folders, asking
                 # every one for the full limit fetches 35x more than the answer needs
                 remaining = None if cap is None else cap - len(recs)
@@ -219,7 +226,8 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
             if ids_only:
                 recs = [{"account": r["account"], "folder": r["folder"], "uid": r["uid"],
                          "message_id": r["message_id"]} for r in recs]
-            return recs, {"search": {**agg, "limit": cap, "folders": len(folders)}}
+            scanned_folders = len(folders) - len(agg["skipped_folders"])
+            return recs, {"search": {**agg, "limit": cap, "folders": scanned_folders}}
 
     out_mod.out(for_accounts(accounts, fn))
 

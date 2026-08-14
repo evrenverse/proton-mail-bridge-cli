@@ -23,8 +23,10 @@ the Proton web settings) and is **read-only**: `move`/`delete`/`flag`/`mark` wit
 `\All` special-use flag, so the localized name is caught too.
 
 It is also a **duplicate view**: every hit there also lives in a real folder. Deleting "via All
-Mail" is therefore impossible by design — work per folder (`--all-folders`, or
-`message bulk-move`/`bulk-delete`, which skip All Mail and say so in `skipped_folders`).
+Mail" is therefore impossible by design — work per folder. `message search --all-folders`,
+`bulk-move` and `bulk-delete` all skip All Mail and name it in `skipped_folders`, so their UIDs
+are usable for writes. (The Bridge does not list folders in a stable order, so without that
+skip it would be luck which folder a deduplicated hit came from.)
 
 Since `search` defaults to All Mail, its results carry `folder: "All Mail"`. Passing that
 straight into a write operation is the trap the guard catches.
