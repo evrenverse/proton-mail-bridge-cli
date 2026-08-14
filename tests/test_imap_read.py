@@ -40,6 +40,40 @@ def test_search_with_body_includes_text():
     assert res[0]["body_text"] == "We order 3 containers."
 
 
+def test_list_unsubscribe_is_split_into_http_and_mailto():
+    from proton_mail_bridge.core.imap import list_unsubscribe
+
+    parsed = list_unsubscribe({
+        "list-unsubscribe": ("<https://example.com/u?id=7>, <mailto:leave@example.org?subject=u>",),
+        "list-unsubscribe-post": ("List-Unsubscribe=One-Click",),
+    })
+    assert parsed == {
+        "http": ["https://example.com/u?id=7"],
+        "mailto": ["mailto:leave@example.org?subject=u"],
+        "one_click": True,
+    }
+    assert list_unsubscribe({"list-unsubscribe": ("<mailto:x@example.org>",)}) == {
+        "http": [], "mailto": ["mailto:x@example.org"], "one_click": False,
+    }
+    assert list_unsubscribe({"message-id": ("<m@example.com>",)}) is None
+    assert list_unsubscribe({}) is None
+
+
+def test_summary_carries_the_unsubscribe_field_and_the_display_name():
+    from tests.conftest import FakeAddress, FakeMessage
+
+    msg = FakeMessage(uid="1", from_="news@example.org",
+                      from_values=FakeAddress(name="Example News", email="news@example.org"),
+                      headers={"message-id": ("<m@example.org>",),
+                               "list-unsubscribe": ("<https://example.org/u>",)})
+    client = ImapClient(FakeMailBox({"INBOX": [msg]}), account_email="me@p.me")
+    rec = client.search({}, folder="INBOX", limit=None, with_body=False,
+                        with_attachments=False)[0][0]
+    assert rec["from_name"] == "Example News"
+    assert rec["list_unsubscribe"]["http"] == ["https://example.org/u"]
+    assert rec["list_unsubscribe"]["one_click"] is False
+
+
 def test_uid_survives_the_gluon_fetch_layout():
     """Gluon puts the UID in the element *after* the literal, not before it:
 

@@ -52,11 +52,11 @@ def is_non_ascii(*values: str | None) -> bool:
 def predicate(
     *, text=None, from_=None, to=None, cc=None, subject=None,
     headers: list[tuple[str, str]] | None = None,
-    has_attachments: bool = False,
+    has_attachments: bool = False, list_unsubscribe: bool = False,
 ) -> Callable[[dict], bool] | None:
     """Client-side filter for everything Gluon handles unreliably server-side:
-    body/text, non-ASCII values, header matches (case-insensitive substring) and
-    attachments.
+    body/text, non-ASCII values, header matches (case-insensitive substring), attachments
+    and the List-Unsubscribe header.
 
     Returns None when nothing needs filtering client-side — that is the caller's signal
     that `--limit` alone already describes the result exactly.
@@ -64,11 +64,14 @@ def predicate(
     headers: (key, value) pairs from --header; requires records with a "headers" field
     (search() with include_headers=True).
     """
-    if not any([text, headers, has_attachments, is_non_ascii(from_, to, cc, subject)]):
+    if not any([text, headers, has_attachments, list_unsubscribe,
+                is_non_ascii(from_, to, cc, subject)]):
         return None
 
     def matches(r: dict) -> bool:
         if has_attachments and not r.get("has_attachments"):
+            return False
+        if list_unsubscribe and not r.get("list_unsubscribe"):
             return False
         if text:
             n = text.lower()

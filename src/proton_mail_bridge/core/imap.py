@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -17,6 +18,33 @@ def _iso(dt: Any) -> str | None:
         return None
 
 
+def _header(headers: dict, name: str) -> str:
+    """First value of a header; imap_tools lowercases the keys."""
+    values = (headers or {}).get(name.lower()) or (headers or {}).get(name) or ()
+    if isinstance(values, str):
+        return values
+    return str(values[0]) if values else ""
+
+
+def list_unsubscribe(headers: dict) -> dict | None:
+    """RFC 2369 `List-Unsubscribe` split into http/mailto targets, plus the RFC 8058
+    one-click flag from `List-Unsubscribe-Post`. None when the header is absent.
+
+    Presence is a bulk-sender signal, not a verdict: project and portal notifications set
+    it too. Use it to select candidates, never as an automatic delete recommendation.
+    """
+    raw = _header(headers, "list-unsubscribe")
+    if not raw:
+        return None
+    targets = [t.strip() for t in re.findall(r"<([^>]+)>", raw)]
+    post = _header(headers, "list-unsubscribe-post").lower()
+    return {
+        "http": [t for t in targets if t.lower().startswith("http")],
+        "mailto": [t for t in targets if t.lower().startswith("mailto:")],
+        "one_click": "one-click" in post,
+    }
+
+
 def attachment_meta(att: Any) -> dict:
     return {
         "filename": att.filename,
@@ -29,8 +57,9 @@ def attachment_meta(att: Any) -> dict:
 
 def summarize(msg: Any, account_email: str, folder: str) -> dict:
     atts = list(msg.attachments or [])
+    headers = msg.headers or {}
     real_msgid = ""
-    mid = (msg.headers or {}).get("message-id")
+    mid = headers.get("message-id")
     if mid:
         real_msgid = mid[0] if isinstance(mid, (list, tuple)) else str(mid)
     return {
@@ -41,6 +70,8 @@ def summarize(msg: Any, account_email: str, folder: str) -> dict:
         "date": _iso(msg.date),
         "date_str": msg.date_str,
         "from": msg.from_,
+        "from_name": getattr(getattr(msg, "from_values", None), "name", "") or "",
+        "list_unsubscribe": list_unsubscribe(headers),
         "to": list(msg.to),
         "cc": list(msg.cc),
         "subject": msg.subject,

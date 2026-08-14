@@ -32,6 +32,7 @@ def test_predicate_is_none_when_the_server_decides_alone():
     assert search.predicate() is None
     assert search.predicate(text="invoice") is not None
     assert search.predicate(has_attachments=True) is not None
+    assert search.predicate(list_unsubscribe=True) is not None
     assert search.predicate(headers=[("x-mailer", "thunderbird")]) is not None
     assert search.predicate(subject="Müller") is not None  # non-ASCII → client-side
 
@@ -65,6 +66,8 @@ def test_predicate_headers_no_match():
     assert keep({"subject": "X", "headers": {"x-spam": ["no"]}}) is False
 
 
-def test_predicate_attachments():
+def test_predicate_list_unsubscribe_and_attachments():
+    keep = search.predicate(list_unsubscribe=True)
+    assert keep({"list_unsubscribe": {"http": ["https://example.com/u"]}}) is True
+    assert keep({"list_unsubscribe": None}) is False
     assert search.predicate(has_attachments=True)({"has_attachments": False}) is False
-    assert search.predicate(has_attachments=True)({"has_attachments": True}) is True

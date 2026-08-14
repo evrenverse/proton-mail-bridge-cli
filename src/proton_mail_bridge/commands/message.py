@@ -41,6 +41,10 @@ SELECT_OPTS = [
                  help="Header filter, form Key:Value (repeatable). Filtered client-side."),
     click.option("--has-attachments", "has_attachments", is_flag=True,
                  help="Only messages with attachments (filtered client-side)."),
+    click.option("--list-unsubscribe", "list_unsub", is_flag=True,
+                 help="Only messages carrying List-Unsubscribe (RFC 2369). A selection "
+                      "criterion, not a verdict: project and portal notifications set the "
+                      "header too, so this is never a reason to delete on its own."),
 ]
 
 
@@ -52,7 +56,7 @@ def select_options(fn):
 
 def _selection(*, from_=None, to=None, cc=None, subject=None, text=None, since=None,
                before=None, seen=None, flagged=False, larger=None, smaller=None,
-               header_filters=(), has_attachments=False) -> dict:
+               header_filters=(), has_attachments=False, list_unsub=False) -> dict:
     """Split the selection options into a server-side criteria dict and a client-side
     predicate. `keep is None` means the server alone decides the result."""
     parsed_headers: list[tuple[str, str]] = []
@@ -73,6 +77,7 @@ def _selection(*, from_=None, to=None, cc=None, subject=None, text=None, since=N
         "keep": search_mod.predicate(
             text=text, from_=from_, to=to, cc=cc, subject=subject,
             headers=parsed_headers or None, has_attachments=has_attachments,
+            list_unsubscribe=list_unsub,
         ),
         # body text and attachments cannot be judged from headers → the scan must fetch fully
         "scan_needs_body": bool(text) or has_attachments,
@@ -150,8 +155,8 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
         if sel["keep"] is not None or all_folders:
             out_mod.out_err(
                 "usage", "--count-only counts server-side",
-                "not combinable with --text/--header/--has-attachments/--all-folders "
-                "or non-ASCII values — those are decided client-side, and "
+                "not combinable with --text/--header/--has-attachments/--list-unsubscribe/"
+                "--all-folders or non-ASCII values — those are decided client-side, and "
                 "counting them means fetching them: run the search without --count-only",
             )
 
