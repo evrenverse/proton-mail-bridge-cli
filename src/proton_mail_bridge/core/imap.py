@@ -151,6 +151,30 @@ class ImapClient:
         msgs = self._mb.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True)
         return [full_message(m, self._email, folder, fmt, include_headers) for m in msgs]
 
+    def preview(self, uids: list[str], folder: str) -> list[dict]:
+        """Headers of the given UIDs — for dry runs. `headers_only` + `mark_seen=False`
+        means BODY.PEEK[HEADER]: no body transfer and, above all, no `\\Seen` side effect.
+        UIDs the server does not know simply do not come back (caller reports them)."""
+        from imap_tools import AND
+
+        if not uids:
+            return []
+        self._mb.folder.set(folder)
+        msgs = self._mb.fetch(AND(uid=",".join(uids)), mark_seen=False, bulk=True,
+                              headers_only=True)
+        return [
+            {
+                "uid": m.uid,
+                "folder": folder,
+                "date": _iso(m.date),
+                "from": m.from_,
+                "subject": m.subject,
+                "size": m.size,
+                "flags": list(m.flags),
+            }
+            for m in msgs
+        ]
+
     def fetch_raw(self, uid: str, folder: str) -> bytes:
         from imap_tools import AND
 

@@ -67,8 +67,10 @@ def doctor_cmd(ctx: click.Context) -> None:
 @click.option("--security", type=click.Choice(["starttls", "ssl"]), default=None)
 @click.option("--smtp-security", "smtp_security", type=click.Choice(["starttls", "ssl"]),
               default=None, help="SMTP separately (the macOS Bridge often uses ssl for SMTP).")
+@out_mod.dry_run_option
 @click.pass_context
-def config_cmd(ctx: click.Context, host, imap_port, smtp_port, security, smtp_security) -> None:
+def config_cmd(ctx: click.Context, host, imap_port, smtp_port, security, smtp_security,
+               dry_run) -> None:
     """Show or set the endpoint."""
     from proton_mail_bridge.core.config import config_path
 
@@ -81,11 +83,16 @@ def config_cmd(ctx: click.Context, host, imap_port, smtp_port, security, smtp_se
         if val is not None:
             setattr(cfg.endpoint, attr, val)
             changed = True
+    endpoint = {"host": cfg.endpoint.host, "imap_port": cfg.endpoint.imap_port,
+                "smtp_port": cfg.endpoint.smtp_port, "security": cfg.endpoint.security,
+                "smtp_security": cfg.endpoint.smtp_security or cfg.endpoint.security}
+    if changed and dry_run:
+        # without a setter there is nothing to simulate: the command just prints the endpoint
+        out_mod.out_plan("bridge config", {**endpoint, "config": str(path)})
+        return
     if changed:
         save_config(cfg, path)
-    out_mod.out({"host": cfg.endpoint.host, "imap_port": cfg.endpoint.imap_port,
-                 "smtp_port": cfg.endpoint.smtp_port, "security": cfg.endpoint.security,
-                 "smtp_security": cfg.endpoint.smtp_security or cfg.endpoint.security})
+    out_mod.out(endpoint)
 
 
 def register(root: click.Group) -> None:

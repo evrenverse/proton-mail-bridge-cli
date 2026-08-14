@@ -8,6 +8,13 @@ import click
 
 _AS_JSON = False
 
+dry_run_option = click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Show what the command would do, then stop. Changes nothing.",
+)
+
 
 def set_json(flag: bool) -> None:
     global _AS_JSON
@@ -22,6 +29,11 @@ def out(data: Any) -> None:
         from rich.console import Console
 
         Console().print(data)
+
+
+def out_plan(action: str, fields: dict[str, Any]) -> None:
+    """Dry-run output: what the command WOULD do. Nothing has been executed."""
+    out({"dry_run": True, "action": action, **fields})
 
 
 def out_ok(message: str) -> None:

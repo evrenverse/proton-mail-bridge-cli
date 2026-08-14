@@ -209,19 +209,41 @@ def _resolve_one(ctx):
     return cfg, accounts[0]
 
 
+def _plan(client, action: str, account, uids: list[str], folder: str, risk: str,
+          **fields) -> None:
+    """Dry-run payload for a UID operation: one entry per message that would be touched,
+    plus the UIDs the folder does not hold — enough to judge the selection before it runs."""
+    messages = client.preview(uids, folder)
+    known = {m["uid"] for m in messages}
+    out_mod.out_plan(action, {
+        "account": account.email,
+        "folder": folder,
+        "risk": risk,
+        "count": len(messages),
+        "missing_uids": [u for u in uids if u not in known],
+        **fields,
+        "messages": messages,
+    })
+
+
 @message_group.command("move")
 @click.option("--uid", required=True)
 @click.option("--to", "dest", required=True)
 @click.option("--folder", default="INBOX")
 @click.option("--yes", "assume_yes", is_flag=True)
+@out_mod.dry_run_option
 @click.pass_context
-def move_cmd(ctx, uid, dest, folder, assume_yes) -> None:
+def move_cmd(ctx, uid, dest, folder, assume_yes, dry_run) -> None:
     """Move message(s) into a folder (🟡)."""
     from proton_mail_bridge.core import guard
 
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     risk = guard.escalate(guard.CONFIRM, count=len(uids))
+    if dry_run:
+        with ImapClient.connect(cfg.endpoint, account) as c:
+            _plan(c, "message move", account, uids, folder, risk, to=dest)
+        return
     guard.enforce(f"message move {uids} → {dest}", risk, assume_yes=assume_yes)
     with ImapClient.connect(cfg.endpoint, account) as c:
         c.move(uids, folder=folder, dest=dest)
@@ -232,12 +254,18 @@ def move_cmd(ctx, uid, dest, folder, assume_yes) -> None:
 @click.option("--uid", required=True)
 @click.option("--to", "dest", required=True)
 @click.option("--folder", default="INBOX")
+@out_mod.dry_run_option
 @click.pass_context
-def copy_cmd(ctx, uid, dest, folder) -> None:
+def copy_cmd(ctx, uid, dest, folder, dry_run) -> None:
     """Copy message(s) into a folder (🟢)."""
+    from proton_mail_bridge.core import guard
+
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     with ImapClient.connect(cfg.endpoint, account) as c:
+        if dry_run:
+            _plan(c, "message copy", account, uids, folder, guard.FREE, to=dest)
+            return
         c.copy(uids, folder=folder, dest=dest)
     out_mod.out_ok(f"{len(uids)} copied → {dest}")
 
@@ -248,14 +276,20 @@ def copy_cmd(ctx, uid, dest, folder) -> None:
 @click.option("--remove", multiple=True)
 @click.option("--folder", default="INBOX")
 @click.option("--yes", "assume_yes", is_flag=True)
+@out_mod.dry_run_option
 @click.pass_context
-def flag_cmd(ctx, uid, add, remove, folder, assume_yes) -> None:
+def flag_cmd(ctx, uid, add, remove, folder, assume_yes, dry_run) -> None:
     """Set/remove flags (🟢 add only; 🟡 with remove)."""
     from proton_mail_bridge.core import guard
 
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     risk = guard.escalate(guard.CONFIRM if remove else guard.FREE, count=len(uids))
+    if dry_run:
+        with ImapClient.connect(cfg.endpoint, account) as c:
+            _plan(c, "message flag", account, uids, folder, risk,
+                  add=list(add), remove=list(remove))
+        return
     guard.enforce(f"message flag {uids}", risk, assume_yes=assume_yes)
     with ImapClient.connect(cfg.endpoint, account) as c:
         c.set_flags(uids, folder=folder, add=list(add), remove=list(remove))
@@ -266,14 +300,21 @@ def flag_cmd(ctx, uid, add, remove, folder, assume_yes) -> None:
 @click.option("--uid", required=True)
 @click.option("--read/--unread", "read", required=True)
 @click.option("--folder", default="INBOX")
+@out_mod.dry_run_option
 @click.pass_context
-def mark_cmd(ctx, uid, read, folder) -> None:
+def mark_cmd(ctx, uid, read, folder, dry_run) -> None:
     """Mark as read/unread (🟢)."""
+    from proton_mail_bridge.core import guard
+
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     with ImapClient.connect(cfg.endpoint, account) as c:
         add_flags = ["\\Seen"] if read else []
         remove_flags = [] if read else ["\\Seen"]
+        if dry_run:
+            _plan(c, "message mark", account, uids, folder, guard.FREE,
+                  add=add_flags, remove=remove_flags)
+            return
         c.set_flags(uids, folder=folder, add=add_flags, remove=remove_flags)
     out_mod.out_ok(f"{len(uids)} marked ({'read' if read else 'unread'}).")
 
@@ -283,8 +324,9 @@ def mark_cmd(ctx, uid, read, folder) -> None:
 @click.option("--folder", default="INBOX")
 @click.option("--expunge", is_flag=True)
 @click.option("--yes", "assume_yes", is_flag=True)
+@out_mod.dry_run_option
 @click.pass_context
-def delete_cmd(ctx, uid, folder, expunge, assume_yes) -> None:
+def delete_cmd(ctx, uid, folder, expunge, assume_yes, dry_run) -> None:
     """Delete: without --expunge → Trash 🟡; --expunge / from Trash / bulk ≥ 20 → permanent 🔴."""
     from proton_mail_bridge.core import guard
 
@@ -294,6 +336,10 @@ def delete_cmd(ctx, uid, folder, expunge, assume_yes) -> None:
         trash = c.special_folders().get("trash", "Trash")
         permanent = expunge or folder == trash
         risk = guard.CRITICAL if permanent else guard.escalate(guard.CONFIRM, count=len(uids))
+        if dry_run:
+            _plan(c, "message delete", account, uids, folder, risk,
+                  permanent=permanent, to=None if permanent else trash)
+            return
         guard.enforce(f"message delete {uids} permanent={permanent}", risk,
                       assume_yes=assume_yes, token="delete")
         if permanent:

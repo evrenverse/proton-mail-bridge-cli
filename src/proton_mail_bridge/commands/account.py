@@ -45,13 +45,22 @@ def list_cmd(ctx: click.Context) -> None:
 @click.option("--email", required=True)
 @click.option("--password", required=True)
 @click.option("--alias", default=None)
+@out_mod.dry_run_option
 @click.pass_context
-def add_raw_cmd(ctx: click.Context, email: str, password: str, alias: str | None) -> None:
+def add_raw_cmd(
+    ctx: click.Context, email: str, password: str, alias: str | None, dry_run: bool
+) -> None:
     """Add an account non-interactively (no login test)."""
     path = config_path()
     cfg = load_config(path)
     if any(a.email == email for a in cfg.accounts):
         out_mod.out_err("config", "Account already exists", email)
+    if dry_run:
+        out_mod.out_plan("account add-raw", {
+            "account": email, "alias": alias,
+            "default_account": cfg.default_account or email, "config": str(path),
+        })
+        return
     cfg.accounts.append(Account(email=email, password=password, alias=alias))
     cfg.default_account = cfg.default_account or email
     save_config(cfg, path)
@@ -59,8 +68,9 @@ def add_raw_cmd(ctx: click.Context, email: str, password: str, alias: str | None
 
 
 @account_group.command("add")
+@out_mod.dry_run_option
 @click.pass_context
-def add_cmd(ctx: click.Context) -> None:
+def add_cmd(ctx: click.Context, dry_run: bool) -> None:
     """Add an account interactively (endpoint wizard on first setup + login test)."""
     path = config_path()
     cfg = load_config(path)
@@ -78,6 +88,13 @@ def add_cmd(ctx: click.Context) -> None:
         out_mod.out_err("config", "Account already exists", email)
     account = Account(email=email, password=password, alias=alias)
     _test_login(cfg.endpoint, account)  # raises on failure
+    if dry_run:
+        # the login test already ran: the dry run confirms the credentials, it just stores nothing
+        out_mod.out_plan("account add", {
+            "account": email, "alias": alias, "login": "ok",
+            "default_account": cfg.default_account or email, "config": str(path),
+        })
+        return
     cfg.accounts.append(account)
     cfg.default_account = cfg.default_account or email
     save_config(cfg, path)
@@ -87,16 +104,33 @@ def add_cmd(ctx: click.Context) -> None:
 @account_group.command("remove")
 @click.argument("value")
 @click.option("--yes", "assume_yes", is_flag=True)
+@out_mod.dry_run_option
 @click.pass_context
-def remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> None:
+def remove_cmd(ctx: click.Context, value: str, assume_yes: bool, dry_run: bool) -> None:
     """Remove an account from the registry (🟡)."""
     from proton_mail_bridge.core import guard
 
-    guard.enforce(f"account remove {value}", guard.CONFIRM, assume_yes=assume_yes)
+    if not dry_run:
+        guard.enforce(f"account remove {value}", guard.CONFIRM, assume_yes=assume_yes)
     path = config_path()
     cfg = load_config(path)
     before = len(cfg.accounts)
     removed = find_account(cfg, value)
+    if dry_run:
+        if not removed:
+            out_mod.out_err("config", "Account not found", value)
+            return
+        rest = [a for a in cfg.accounts if a is not removed]
+        out_mod.out_plan("account remove", {
+            "account": removed.email, "alias": removed.alias, "risk": guard.CONFIRM,
+            "identities": [i.email for i in removed.identities],
+            "new_default_account": (
+                (rest[0].email if rest else None)
+                if cfg.default_account == removed.email else cfg.default_account
+            ),
+            "config": str(path),
+        })
+        return
     cfg.accounts = [a for a in cfg.accounts if a.email != value and a.alias != value]
     if len(cfg.accounts) == before:
         out_mod.out_err("config", "Account not found", value)
@@ -108,14 +142,21 @@ def remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> None:
 
 @account_group.command("set-default")
 @click.argument("value")
+@out_mod.dry_run_option
 @click.pass_context
-def set_default_cmd(ctx: click.Context, value: str) -> None:
+def set_default_cmd(ctx: click.Context, value: str, dry_run: bool) -> None:
     """Set the default account for sending."""
     path = config_path()
     cfg = load_config(path)
     found = find_account(cfg, value)
     if not found:
         out_mod.out_err("config", "Account not found", value)
+        return
+    if dry_run:
+        out_mod.out_plan("account set-default", {
+            "default_account": found.email, "previous": cfg.default_account,
+            "config": str(path),
+        })
         return
     cfg.default_account = found.email
     save_config(cfg, path)
@@ -165,9 +206,10 @@ def identity_group() -> None:
 @click.option("--email", required=True)
 @click.option("--name", default=None, help="Display name for the From header.")
 @click.option("--label", default=None, help="Short handle for `--identity`.")
+@out_mod.dry_run_option
 @click.pass_context
 def identity_add_cmd(
-    ctx: click.Context, email: str, name: str | None, label: str | None
+    ctx: click.Context, email: str, name: str | None, label: str | None, dry_run: bool
 ) -> None:
     """Add a sender identity to an account (🟢)."""
     from proton_mail_bridge.core.config import Identity, resolve_accounts
@@ -184,6 +226,12 @@ def identity_add_cmd(
         i.label and i.label.lower() == label.strip().lower() for i in account.identities
     ):
         out_mod.out_err("config", "Label already used", label)
+    if dry_run:
+        out_mod.out_plan("account identity add", {
+            "account": account.email, "identity": email, "name": name, "label": label,
+            "config": str(path),
+        })
+        return
     account.identities.append(Identity(email=email, name=name, label=label))
     save_config(cfg, path)
     out_mod.out_ok(f"Identity {email} added to {account.email}.")
@@ -192,15 +240,19 @@ def identity_add_cmd(
 @identity_group.command("remove")
 @click.argument("value")
 @click.option("--yes", "assume_yes", is_flag=True)
+@out_mod.dry_run_option
 @click.pass_context
-def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> None:
+def identity_remove_cmd(
+    ctx: click.Context, value: str, assume_yes: bool, dry_run: bool
+) -> None:
     """Remove a sender identity (🟡)."""
     from proton_mail_bridge.core import guard
     from proton_mail_bridge.core.identity import resolve_identity
 
     if not value.strip():
         out_mod.out_err("config", "Identity value required", "VALUE must not be blank.")
-    guard.enforce(f"account identity remove {value}", guard.CONFIRM, assume_yes=assume_yes)
+    if not dry_run:
+        guard.enforce(f"account identity remove {value}", guard.CONFIRM, assume_yes=assume_yes)
     path = config_path()
     cfg = load_config(path)
     account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
@@ -210,11 +262,21 @@ def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> Non
             "Cannot remove that identity",
             f"{found.email} is the account's own Bridge login address.",
         )
-    account.identities = [i for i in account.identities if i is not found]
     stale = {found.email.lower()}
     if found.label:
         stale.add(found.label.lower())
-    if account.default_identity and account.default_identity.lower() in stale:
+    clears_default = bool(
+        account.default_identity and account.default_identity.lower() in stale
+    )
+    if dry_run:
+        out_mod.out_plan("account identity remove", {
+            "account": account.email, "identity": found.email, "label": found.label,
+            "risk": guard.CONFIRM, "clears_default_identity": clears_default,
+            "config": str(path),
+        })
+        return
+    account.identities = [i for i in account.identities if i is not found]
+    if clears_default:
         account.default_identity = None
     save_config(cfg, path)
     out_mod.out_ok(f"Identity {found.email} removed from {account.email}.")
@@ -222,8 +284,9 @@ def identity_remove_cmd(ctx: click.Context, value: str, assume_yes: bool) -> Non
 
 @identity_group.command("set-default")
 @click.argument("value")
+@out_mod.dry_run_option
 @click.pass_context
-def identity_set_default_cmd(ctx: click.Context, value: str) -> None:
+def identity_set_default_cmd(ctx: click.Context, value: str, dry_run: bool) -> None:
     """Set the default sender identity of an account."""
     from proton_mail_bridge.core.identity import resolve_identity
 
@@ -232,6 +295,13 @@ def identity_set_default_cmd(ctx: click.Context, value: str) -> None:
     path = config_path()
     cfg = load_config(path)
     account, found = resolve_identity(cfg, value, ctx.obj.get("account"))
+    if dry_run:
+        out_mod.out_plan("account identity set-default", {
+            "account": account.email, "default_identity": found.label or found.email,
+            "address": found.email, "previous": account.default_identity,
+            "config": str(path),
+        })
+        return
     account.default_identity = found.label or found.email
     save_config(cfg, path)
     out_mod.out_ok(f"Default identity of {account.email}: {found.email}")

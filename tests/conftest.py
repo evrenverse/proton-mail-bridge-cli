@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -113,6 +114,11 @@ class FakeMailBox:
              "reverse": reverse, "headers_only": headers_only}
         )
         msgs = list(self._store.get(self.folder.current, []))
+        # honour `AND(uid=...)` → "(UID 1,2)": a UID the folder does not hold returns nothing
+        by_uid = re.search(r"UID ([\d,]+)", str(criteria))
+        if by_uid:
+            wanted = set(by_uid.group(1).split(","))
+            msgs = [m for m in msgs if m.uid in wanted]
         if reverse:
             msgs.reverse()
         return msgs[:limit] if limit else msgs

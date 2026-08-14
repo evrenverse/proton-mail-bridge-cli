@@ -49,7 +49,7 @@ def _body(body: str | None, body_file: str | None) -> str:
 @click.option("--from", "from_", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity: address or label (see `account identity`).")
-@click.option("--dry-run", is_flag=True)
+@out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def send_cmd(
@@ -71,8 +71,11 @@ def send_cmd(
         body_text=_body(body, body_file), body_html=html, attachments=list(attach),
     )
     if dry_run:
-        out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
-                     "to": _csv(to), "subject": subject, "attachments": [a for a in attach]})
+        out_mod.out_plan("compose send", {
+            "from": ident.email, "account": account.email, "to": _csv(to),
+            "cc": _csv(cc), "bcc": _csv(bcc), "subject": subject,
+            "attachments": list(attach), "risk": guard.CONFIRM,
+        })
         return
     guard.enforce(f"compose send → {to}", guard.CONFIRM, assume_yes=assume_yes)
     with SmtpSession.connect(cfg.endpoint, account) as s:
@@ -90,7 +93,7 @@ def send_cmd(
 @click.option("--attach", multiple=True, type=click.Path(exists=True))
 @click.option("--identity", "identity", default=None,
               help="Sender identity; defaults to the address the mail was sent to.")
-@click.option("--dry-run", is_flag=True)
+@out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def reply_cmd(
@@ -124,8 +127,11 @@ def reply_cmd(
         in_reply_to=original["message_id"], references=[original["message_id"]],
     )
     if dry_run:
-        out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
-                     "to": recipients, "cc": cc_list, "subject": msg["Subject"]})
+        out_mod.out_plan("compose reply", {
+            "from": ident.email, "account": account.email, "to": recipients,
+            "cc": cc_list, "subject": msg["Subject"], "in_reply_to": original["message_id"],
+            "attachments": list(attach), "risk": guard.CONFIRM,
+        })
         return
     guard.enforce(f"compose reply uid={uid} ({account.email})", guard.CONFIRM,
                   assume_yes=assume_yes)
@@ -142,7 +148,7 @@ def reply_cmd(
 @click.option("--body", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity; defaults to the address the mail was sent to.")
-@click.option("--dry-run", is_flag=True)
+@out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> None:
@@ -169,8 +175,11 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
         subject="Fwd: " + original["subject"], body_text=fwd_body, body_html=None, attachments=atts,
     )
     if dry_run:
-        out_mod.out({"dry_run": True, "from": ident.email, "account": account.email,
-                     "to": _csv(to), "subject": msg["Subject"]})
+        out_mod.out_plan("compose forward", {
+            "from": ident.email, "account": account.email, "to": _csv(to),
+            "subject": msg["Subject"],
+            "attachments": [a[0] for a in atts], "risk": guard.CONFIRM,
+        })
         return
     guard.enforce(f"compose forward uid={uid} → {to} ({account.email})", guard.CONFIRM,
                   assume_yes=assume_yes)
@@ -189,9 +198,11 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
 @click.option("--folder", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity: address or label (see `account identity`).")
+@out_mod.dry_run_option
 @click.pass_context
-def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity) -> None:
+def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity, dry_run) -> None:
     """Store a draft in Drafts via IMAP APPEND (🟢)."""
+    from proton_mail_bridge.core import guard
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
@@ -202,6 +213,13 @@ def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity) -> No
     )
     with ImapClient.connect(cfg.endpoint, account) as c:
         target = folder or c.special_folders().get("drafts", "Drafts")
+        if dry_run:
+            out_mod.out_plan("compose draft", {
+                "from": ident.email, "account": account.email, "to": _csv(to),
+                "subject": subject, "folder": target, "attachments": list(attach),
+                "risk": guard.FREE,
+            })
+            return
         c.append(msg.as_bytes(), target, flags=["\\Draft"])
     out_mod.out_ok(f"Draft stored in {target}.")
 

@@ -37,8 +37,9 @@ def list_cmd(ctx: click.Context) -> None:
 
 @mailbox_group.command("create")
 @click.argument("name")
+@out_mod.dry_run_option
 @click.pass_context
-def create_cmd(ctx: click.Context, name: str) -> None:
+def create_cmd(ctx: click.Context, name: str, dry_run: bool) -> None:
     """Create a folder/label (🟢). Proton: folders are `Folders/<name>`, labels `Labels/<name>`."""
     cfg = cfgmod.resolve_config()
     accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="message_op")
@@ -46,6 +47,13 @@ def create_cmd(ctx: click.Context, name: str) -> None:
         out_mod.out_err("account", "create needs exactly one account",
                         "pass --account <email|alias>")
     with ImapClient.connect(cfg.endpoint, accounts[0]) as c:
+        if dry_run:
+            out_mod.out_plan("mailbox create", {
+                "account": accounts[0].email,
+                "folder": name,
+                "exists": name in c.list_folders(),
+            })
+            return
         c.create_folder(name)
     out_mod.out_ok(f"Folder {name} created.")
 
