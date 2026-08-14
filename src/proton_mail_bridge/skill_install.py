@@ -42,38 +42,32 @@ def _plan(agent: str, target: Path, files: list[Path]) -> None:
 def install(agent: str, dest: str | None, dry_run: bool) -> None:
     """Copies SKILL.md/AGENTS.md + references to the agent location."""
     src = _skills_dir()
-    refs = sorted((src / "references").glob("*.md"))
     if agent == "claude":
-        target = Path(dest) if dest else Path.cwd() / ".claude" / "skills"
-        skill_dir = target / "proton-mail-bridge"
-        if dry_run:
-            _plan(agent, skill_dir,
-                  [skill_dir / "SKILL.md"] + [skill_dir / "references" / r.name for r in refs])
-            return
-        (skill_dir / "references").mkdir(parents=True, exist_ok=True)
-        shutil.copy(src / "SKILL.md", skill_dir / "SKILL.md")
-        for ref in (src / "references").glob("*.md"):
-            shutil.copy(ref, skill_dir / "references" / ref.name)
-        click.echo(f"Claude skill installed → {skill_dir}")
+        root = (Path(dest) if dest else Path.cwd() / ".claude" / "skills") / "proton-mail-bridge"
+        files = {src / "SKILL.md": root / "SKILL.md"}
+        done = f"Claude skill installed → {root}"
     else:
-        target = Path(dest) if dest else Path.cwd()
-        if (target / "AGENTS.md").exists():
+        root = Path(dest) if dest else Path.cwd()
+        if (root / "AGENTS.md").exists():
             # never clobber an existing (possibly project-owned) AGENTS.md
             raise click.ClickException(
-                f"{target / 'AGENTS.md'} already exists — merge the content manually "
+                f"{root / 'AGENTS.md'} already exists — merge the content manually "
                 "or pick another target with --dest."
             )
-        if dry_run:
-            _plan(agent, target,
-                  [target / "AGENTS.md"] + [target / "references" / r.name for r in refs])
-            return
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copy(src / "AGENTS.md", target / "AGENTS.md")
-        ref_dir = target / "references"
-        ref_dir.mkdir(parents=True, exist_ok=True)
-        for ref in refs:
-            shutil.copy(ref, ref_dir / ref.name)
-        click.echo(f"Codex AGENTS.md installed → {target / 'AGENTS.md'}")
+        # Codex auto-reads AGENTS.md only, so SKILL.md rides along as the long form under
+        # references/ (linked from the AGENTS.md footer) instead of cluttering the project root
+        files = {src / "AGENTS.md": root / "AGENTS.md",
+                 src / "SKILL.md": root / "references" / "SKILL.md"}
+        done = f"Codex AGENTS.md installed → {root / 'AGENTS.md'}"
+    files.update({r: root / "references" / r.name
+                  for r in sorted((src / "references").glob("*.md"))})
+    if dry_run:
+        _plan(agent, root, list(files.values()))
+        return
+    (root / "references").mkdir(parents=True, exist_ok=True)
+    for source, target in files.items():
+        shutil.copy(source, target)
+    click.echo(done)
 
 
 def register_skill(root: click.Group) -> None:

@@ -49,4 +49,5 @@ discover` has none either — without `--save` it already is the preview.
 - WSL→Windows: 127.0.0.1 → Windows-host fallback; diagnosis `pmb bridge doctor`.
 - Labels: the same mail can live in INBOX + Labels/X + All Mail (same Message-ID, different UIDs).
 
-Full reference: `references/commands.md` | Workflows: `references/workflows.md` | Details: `references/gotchas.md`
+Full reference: `references/commands.md` | Workflows: `references/workflows.md` |
+Details: `references/gotchas.md` | Long form of this guide: `references/SKILL.md`

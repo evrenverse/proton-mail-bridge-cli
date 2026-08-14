@@ -21,6 +21,35 @@ def test_skill_install_codex(tmp_path):
     assert result.exit_code == 0
     assert (dest / "AGENTS.md").exists()
     assert (dest / "references" / "commands.md").exists()
+    # AGENTS.md is the condensed guide; the long form used to be missing entirely
+    assert (dest / "references" / "SKILL.md").exists()
+    assert "references/SKILL.md" in (dest / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_skill_install_claude_stays_free_of_agents_md(tmp_path):
+    dest = tmp_path / "skills"
+    CliRunner().invoke(main, ["skill", "install", "--agent", "claude", "--dest", str(dest)])
+    assert not (dest / "proton-mail-bridge" / "AGENTS.md").exists()
+    assert not (dest / "proton-mail-bridge" / "references" / "SKILL.md").exists()
+
+
+def test_skill_install_dry_run_predicts_every_file(tmp_path):
+    """The preview is only worth anything if it lists exactly what the real run writes."""
+    import json
+
+    for agent in ("claude", "codex"):
+        dest = tmp_path / agent
+        preview = CliRunner().invoke(
+            main, ["--json", "skill", "install", "--agent", agent, "--dest", str(dest),
+                   "--dry-run"]
+        )
+        assert preview.exit_code == 0
+        planned = set(json.loads(preview.output)["files"])
+        assert not dest.exists()
+        assert CliRunner().invoke(
+            main, ["skill", "install", "--agent", agent, "--dest", str(dest)]
+        ).exit_code == 0
+        assert {str(p) for p in dest.rglob("*") if p.is_file()} == planned
 
 
 def test_skill_install_codex_refuses_to_overwrite(tmp_path):

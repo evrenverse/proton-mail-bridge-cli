@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Fix: `skill install --agent codex` now ships the long-form guide as `references/SKILL.md`
+  (linked from the AGENTS.md footer) instead of only `AGENTS.md` + references.
+
 ## 0.3.0 (2026-08-14)
 - `--dry-run` on every writing command (previously only `compose send/reply/forward`):
   `message move/copy/flag/mark/delete`, `mailbox create`, `compose draft`,
