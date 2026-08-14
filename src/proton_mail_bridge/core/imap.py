@@ -154,6 +154,14 @@ class ImapClient:
         self._mb.folder.set(folder)
         return list(reversed(self._mb.uids(self._criteria(criteria))))
 
+    @staticmethod
+    def _room(max_fetch: int | None, stats: dict) -> int:
+        """Messages the next round may fetch. Without this the budget is rounded up to the
+        batch size, and `--max-fetch 50` reads 200."""
+        if not max_fetch:
+            return FETCH_BATCH
+        return min(FETCH_BATCH, max_fetch - stats["scanned"])
+
     def _record(self, msg: Any, folder: str, *, with_body: bool, with_attachments: bool,
                 include_headers: bool) -> dict:
         if with_body or include_headers:
@@ -229,7 +237,7 @@ class ImapClient:
             if max_fetch and stats["scanned"] >= max_fetch:
                 reason = "fetch_budget"
                 break
-            chunk = uids[pos:pos + FETCH_BATCH]
+            chunk = uids[pos:pos + self._room(max_fetch, stats)]
             pos += len(chunk)
             for rec in self._materialize(chunk, folder, **scan_opts):
                 stats["scanned"] += 1
@@ -265,7 +273,7 @@ class ImapClient:
             if max_fetch and stats["scanned"] >= max_fetch:
                 stats.update(truncated=True, reason="fetch_budget")
                 break
-            chunk = uids[pos:pos + FETCH_BATCH]
+            chunk = uids[pos:pos + self._room(max_fetch, stats)]
             pos += len(chunk)
             for rec in self._materialize(chunk, folder, headers_only=True):
                 stats["scanned"] += 1

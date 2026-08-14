@@ -83,6 +83,17 @@ def test_exhausted_fetch_budget_is_reported(monkeypatch):
     assert data["search"]["reason"] == "fetch_budget"
 
 
+def test_fetch_budget_is_exact_not_rounded_up_to_the_batch(monkeypatch):
+    """Observed live: --max-fetch 50 read 200, because the budget was only checked between
+    rounds. A budget that quietly costs four times what it says is the wrong kind of cap."""
+    _cli(monkeypatch, {"INBOX": [_msg(i, bulk=i <= 3) for i in range(1, 501)]})
+    for budget in ("50", "137"):
+        data = _run(["message", "search", "--folder", "INBOX", "--header", "X-Campaign:bulk",
+                     "--max-fetch", budget])
+        assert data["search"]["scanned"] == int(budget)
+        assert data["search"]["reason"] == "fetch_budget"
+
+
 def test_unfiltered_search_reports_a_complete_window(monkeypatch):
     """Without a client-side filter the server decides -- `truncated` then only means paging."""
     _cli(monkeypatch, {"INBOX": [_msg(i) for i in range(1, 11)]})
