@@ -25,11 +25,18 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
   (UIDs are unique per account+folder).
 - **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <path...>`
   (e.g. `describe account identity add`), `pmb --json fields message`.
-- **Writes** (move/delete/send): `--dry-run` first (for send), never pass `--yes` on your own.
+- **Writes** (move/copy/flag/mark/delete, folder create, send/reply/forward/draft, attachment
+  download): `--dry-run` first, never pass `--yes` on your own.
 
 ## Protection layer
 
 🟢 free · 🟡 confirm (`--yes`) · 🔴 critical (`delete --expunge`, bulk ≥ 20 — terminal only)
+
+`--dry-run` sits before all three: every writing command has it, it changes nothing (headers via
+`BODY.PEEK`, so not even `\Seen`) and needs no confirmation — the only way to inspect a 🔴
+operation. UID ops return `count`, `risk`, `missing_uids` and one entry per message
+(uid/date/from/subject/size/flags). Read-only commands have no `--dry-run`; `account identity
+discover` has none either — without `--save` it already is the preview.
 
 ## Error format
 

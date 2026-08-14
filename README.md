@@ -41,7 +41,8 @@ Operating rules (details in the skill):
 3. **Token-efficient**: `message search --ids-only` (pipelines), `--count-only` (count questions).
 4. **Discovery**: `pmb --help`, `pmb describe <path...>` (e.g. `describe account identity add`),
    `pmb fields message`.
-5. **Write operations**: never pass `--yes` on your own; show `--dry-run` before `send`.
+5. **Write operations**: `--dry-run` first (every writing command has it), never pass `--yes`
+   on your own.
 
 ## Configuration
 
@@ -77,9 +78,23 @@ probes the Windows host IP (gateway/nameserver). Diagnosis: `pmb bridge doctor`.
 
 ## Security
 
-Write operations are risk-tiered (🟢/🟡/🔴). TLS against the self-signed bridge certificate is
-unverified by default (loopback/trusted host); pin it via `tls_cert_path` in the config file.
-See `SECURITY.md`.
+Write operations are risk-tiered (🟢/🟡/🔴) and every one of them takes `--dry-run`:
+
+```bash
+pmb --json --account you@proton.me message delete --uid 12,13,14 --dry-run
+```
+
+The dry run resolves the whole operation and prints it — for UID operations including one entry
+per message (uid, date, sender, subject, size, flags), the resulting risk tier, and the UIDs the
+folder does not hold — then stops. It changes nothing, not even `\Seen` (headers are fetched
+with `BODY.PEEK`), and it needs no confirmation, because there is nothing to confirm. That makes
+it the way to inspect a 🔴 operation that would otherwise demand a terminal.
+
+Read-only commands (`search`, `read`, `list`, `mailbox list`, …) have no `--dry-run`; neither
+does `account identity discover`, which without `--save` already is the preview.
+
+TLS against the self-signed bridge certificate is unverified by default (loopback/trusted host);
+pin it via `tls_cert_path` in the config file. See `SECURITY.md`.
 
 ## Status & license
 

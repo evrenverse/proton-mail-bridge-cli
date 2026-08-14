@@ -17,7 +17,8 @@
   (and thereby the account); `pmb --json account list` shows them.
 - Discovery: `pmb --help`, `pmb describe <path...>` (e.g. `describe account identity add`),
   `pmb fields message`.
-- Writes are risk-tiered (🟢/🟡/🔴); preview sends with `--dry-run`; never auto-`--yes`.
+- Writes are risk-tiered (🟢/🟡/🔴); every writing command previews with `--dry-run` (changes
+  nothing, needs no confirmation); never auto-`--yes`.
 
 ## Docs
 - README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md

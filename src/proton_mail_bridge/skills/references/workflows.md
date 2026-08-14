@@ -46,8 +46,25 @@ pmb --json --account me@proton.me compose reply --uid 42 --folder INBOX --body "
 
 ```bash
 # UIDs from the search result: remember account and folder
+# 1. Preview: which mails would actually be hit?
+pmb --json --account me@proton.me message move --uid 10,11,12 --folder INBOX --to Archive --dry-run
+# → count, risk, missing_uids, and sender/subject/date per message
+# 2. Show the list to the user, then run it
 pmb --json --account me@proton.me message move --uid 10,11,12 --folder INBOX --to Archive --yes
 ```
+
+`missing_uids` is the usual sign of a wrong `--folder`: UIDs are unique per account+folder.
+
+## Bulk cleanup (search → preview → delete)
+
+```bash
+pmb --json message search --from newsletter@x.com --folder INBOX --ids-only --limit 500
+pmb --json --account me@proton.me message delete --uid <ids> --folder INBOX --dry-run
+# → "permanent": false and "to": "<Trash>" means it is the reversible soft delete;
+#   "risk": "critical" means the real run needs a human terminal (bulk ≥ 20)
+```
+
+Hand the dry run to the user and let them run the delete themselves when it is 🔴.
 
 ## List unread mails across all accounts
 
@@ -62,5 +79,7 @@ Results are tagged by `account` — pass `--account` for follow-up ops.
 ```bash
 pmb --json attachment list --uid 42 --folder INBOX
 # → shows filename, index, size
+pmb --json attachment download --uid 42 --index 0 --dir /tmp/downloads --folder INBOX --dry-run
+# → target paths plus "overwrites": files that already exist and would be replaced
 pmb --json attachment download --uid 42 --index 0 --dir /tmp/downloads --folder INBOX
 ```

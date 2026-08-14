@@ -52,7 +52,23 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
 
 - **Never pass `--yes` on your own** — ask the user first.
 - 🔴 (`delete --expunge`, bulk delete ≥ 20) requires terminal input.
-- Before `send`/`reply`/`forward`, show `--dry-run` first, then send.
+- **`--dry-run` sits before all three tiers**: every writing command takes it, it changes
+  nothing, and it needs no confirmation — so it also works for 🔴 operations you cannot run
+  yourself. Run it first, show the result, then let the user decide.
+
+```bash
+pmb --json --account A message delete --uid 12,13,14 --dry-run
+{"dry_run": true, "action": "message delete", "account": "…", "folder": "INBOX",
+ "risk": "confirm", "count": 3, "missing_uids": ["14"], "permanent": false, "to": "Trash",
+ "messages": [{"uid": "12", "folder": "INBOX", "date": "…", "from": "…", "subject": "…",
+               "size": 4096, "flags": ["\\Seen"]}, …]}
+```
+
+`missing_uids` are UIDs the folder does not hold — usually a wrong `--folder` or a stale UID
+list. `risk` is the tier the real run would hit (bulk ≥ 20 escalates 🟡 → 🔴).
+
+No `--dry-run` on read-only commands, and none on `account identity discover` — without
+`--save` that command *is* its own preview.
 
 ## Error format
 
@@ -65,6 +81,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
   then `pmb --json attachment download --uid <ids> --all --dir ./invoices`
 - Send mail: `pmb --json compose send --to a@x.com --subject "..." --body "..." --dry-run`
   → review → send without `--dry-run`
+- Clean up in bulk: `message search --ids-only` → `message move --uid <ids> --to Trash --dry-run`
+  → check `count`/`missing_uids`/`messages` with the user → run again without `--dry-run`
 
 ## Gotchas
 
