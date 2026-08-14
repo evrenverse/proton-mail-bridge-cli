@@ -124,10 +124,81 @@ def test_text_search_scans_bodies_because_headers_cannot_answer_it(monkeypatch):
     assert data["search"]["scanned"] == 2
 
 
-def test_count_only_refuses_client_side_criteria(monkeypatch):
-    """A count over a window is worse than no count -- so it is rejected, not approximated."""
-    _cli(monkeypatch, {"INBOX": [_msg(1, bulk=True)]})
+def test_count_only_scans_client_side_criteria_instead_of_guessing(monkeypatch):
+    """A count over a window is worse than no count. It used to be refused; now it scans --
+    and `--limit` must not move the number, or it would be a window count again."""
+    _cli(monkeypatch, {"INBOX": [_msg(i, bulk=i <= 3) for i in range(1, 501)]})
+    for limit in ("5", "50", "0"):
+        data = _run(["message", "search", "--count-only", "--folder", "INBOX",
+                     "--header", "X-Campaign:bulk", "--limit", limit])["items"]
+        assert data["count"] == 3
+        assert data["scanned"] == 500
+        assert data["truncated"] is False
+
+
+def test_count_only_reports_a_count_cut_short_by_the_budget(monkeypatch):
+    """An incomplete count has to be recognizable as incomplete."""
+    _cli(monkeypatch, {"INBOX": [_msg(i, bulk=i <= 3) for i in range(1, 501)]})
+    data = _run(["message", "search", "--count-only", "--folder", "INBOX",
+                 "--header", "X-Campaign:bulk", "--max-fetch", "100"])["items"]
+    assert data["count"] == 0            # the hits sit beyond the budget
+    assert data["scanned"] == 100
+    assert data["truncated"] is True and data["reason"] == "fetch_budget"
+
+
+def test_count_only_without_client_criteria_stays_server_side(monkeypatch):
+    mb = _cli(monkeypatch, {"INBOX": [_msg(i) for i in range(1, 6)]})
+    data = _run(["message", "search", "--count-only", "--folder", "INBOX"])["items"]
+    assert data == {"folder": "INBOX", "count": 5}
+    assert mb.fetch_calls == []          # UID SEARCH only, not a single message fetched
+
+
+def test_count_only_refuses_all_folders(monkeypatch):
+    """Counting folder by folder would count a labelled mail once per label."""
+    _cli(monkeypatch, {"INBOX": [_msg(1)]})
     result = CliRunner().invoke(main, ["--json", "message", "search", "--count-only",
-                                       "--header", "X-Campaign:bulk"])
+                                       "--all-folders"])
     assert result.exit_code != 0
     assert json.loads(result.output)["error"]["type"] == "usage"
+
+
+def test_all_folders_asks_each_folder_only_for_what_is_still_missing(monkeypatch):
+    """With 35 folders, asking every one for the full --limit fetches an order of magnitude
+    more than the answer needs -- and the surplus is thrown away after deduplication."""
+    mb = _cli(monkeypatch, {
+        "INBOX": [_msg(i, bulk=True) for i in range(1, 101)],
+        "Archive": [_msg(i, bulk=True) for i in range(200, 300)],
+        "Sent": [_msg(i, bulk=True) for i in range(400, 500)],
+    })
+    data = _run(["message", "search", "--all-folders", "--header", "X-Campaign:bulk",
+                 "--limit", "10", "--ids-only"])
+    assert len(data["items"]) == 10
+    assert {c["folder"] for c in mb.fetch_calls} == {"INBOX"}   # the rest stayed untouched
+    assert data["search"]["truncated"] is True
+    assert data["search"]["reason"] == "limit"
+
+
+def test_all_folders_fills_the_limit_from_later_folders(monkeypatch):
+    """The budget shrinks per folder, but the limit still has to be filled while matches
+    are left -- otherwise the shortcut would quietly return too few."""
+    mb = _cli(monkeypatch, {
+        "INBOX": [_msg(1, bulk=True), _msg(2, bulk=True)],
+        "Archive": [_msg(i, bulk=True) for i in range(10, 30)],
+    })
+    data = _run(["message", "search", "--all-folders", "--header", "X-Campaign:bulk",
+                 "--limit", "5", "--ids-only"])
+    assert len(data["items"]) == 5
+    assert {c["folder"] for c in mb.fetch_calls} == {"INBOX", "Archive"}
+
+
+def test_all_folders_deduplicates_across_folders_without_losing_hits(monkeypatch):
+    """All Mail holds a copy of everything: the duplicates must not eat the limit."""
+    inbox = [_msg(i, bulk=True) for i in range(1, 4)]
+    allmail = [_msg(i, bulk=True) for i in range(1, 4)]
+    for real, copy in zip(inbox, allmail, strict=True):
+        copy.uid = str(int(real.uid) + 900)            # own UID, same Message-ID
+    _cli(monkeypatch, {"INBOX": inbox, "All Mail": allmail})
+    data = _run(["message", "search", "--all-folders", "--header", "X-Campaign:bulk",
+                 "--limit", "0", "--ids-only"])
+    assert [r["uid"] for r in data["items"]] == ["3", "2", "1"]   # each mail exactly once
+    assert data["search"]["truncated"] is False

@@ -25,7 +25,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
 - **Bulk-first**: one task = 1–3 calls. `message search --with-body` fetches many bodies at
   once; `message read --uid 1,2,3`; `attachment download --uid 1,2,3 --all`.
 - **Token-efficient**: `message search --ids-only` for move/delete pipelines,
-  `--count-only` for pure count questions ("how many unread from X?").
+  `--count-only` for pure count questions ("how many unread from X?"). A count with a
+  client-side criterion scans for its answer and reports `scanned`/`truncated` with it.
 - **Multi-account fan-out**: without `--account`, `message search`/`list` fan out over **all**
   accounts (results tagged with `account`). Pick one account with `--account <email|alias>`.
   Sending uses `default_account`/the only account, otherwise `--account`/`--from`.
@@ -90,7 +91,8 @@ No `--dry-run` on read-only commands, and none on `account identity discover` �
 ## Cleaning up a mailbox
 
 1. **Who sends the volume**: `pmb --json message senders --min-count 20` — count, last date
-   and last subject per sender, headers only.
+   and last subject per sender, headers only. `--all-folders` adds `folders` per sender:
+   where the mails actually sit, which is where a cleanup has to go.
 2. **Pick a criterion**, e.g. `--from`, `--subject`, `--larger`, `--before`, or
    `--list-unsubscribe` (messages offering an unsubscribe link).
 3. **Preview folder by folder**: `pmb --json message bulk-delete --all-folders --from X

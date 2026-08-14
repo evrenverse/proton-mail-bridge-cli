@@ -39,13 +39,16 @@ def test_search_count_only_uses_uid_search(monkeypatch):
     assert data[0]["items"] == {"folder": "INBOX", "count": 1}
 
 
-def test_search_count_only_rejects_client_filters(monkeypatch):
+def test_search_count_only_scans_for_client_filters(monkeypatch):
+    """--text cannot be counted by the server, so it is scanned -- with the scan reported."""
     _patch(monkeypatch, [Account("a@p.me", "1")])
     result = CliRunner().invoke(
-        main, ["--json", "message", "search", "--count-only", "--text", "x"]
+        main, ["--json", "message", "search", "--count-only", "--text", "containers"]
     )
-    assert result.exit_code != 0
-    assert json.loads(result.output)["error"]["type"] == "usage"
+    assert result.exit_code == 0
+    items = json.loads(result.output)[0]["items"]
+    assert items["count"] == 1
+    assert items["scanned"] == 1 and items["truncated"] is False
 
 
 def test_search_ids_only_strips_records(monkeypatch):

@@ -162,23 +162,33 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
     budget = _cap(max_fetch)
 
     if count_only:
-        # ponytail: counts server-side only (UID SEARCH); a client-side filter would only be
-        # honest after a full scan → run the search itself instead of counting a window
         if ids_only:
             out_mod.out_err("usage", "Not combinable", "--count-only excludes --ids-only")
-        if sel["keep"] is not None or all_folders:
+        if all_folders:
+            # counting folder by folder would count labelled mail several times; the default
+            # scope (All Mail) already holds every message exactly once
             out_mod.out_err(
-                "usage", "--count-only counts server-side",
-                "not combinable with --text/--header/--has-attachments/--attachment-name/"
-                "--attachment-text/--list-unsubscribe/"
-                "--all-folders or non-ASCII values — those are decided client-side, and "
-                "counting them means fetching them: run the search without --count-only",
+                "usage", "--count-only excludes --all-folders",
+                "the same mail lives in INBOX + Labels/X + All Mail, so a per-folder count "
+                "would count it repeatedly — count in All Mail (the default scope) instead",
             )
 
         def fn_count(account):
             with ImapClient.connect(cfg.endpoint, account) as c:
                 f = c.resolve_folder(folder, "all")
-                return {"folder": f, "count": c.count(sel["criteria"], f)}
+                if sel["keep"] is None:  # server-side criteria only → UID SEARCH, no fetch
+                    return {"folder": f, "count": c.count(sel["criteria"], f)}
+                # a client-side criterion has to be scanned to be counted; materialize=False
+                # skips completing the hits, because only their number is used
+                hits, stats = c.search(
+                    sel["criteria"], folder=f, limit=None,
+                    with_body=sel["with_body"], with_attachments=sel["with_attachments"],
+                    include_headers=sel["include_headers"], keep=sel["keep"],
+                    scan_needs_body=sel["scan_needs_body"],
+                    with_attachment_text=sel["with_attachment_text"],
+                    materialize=False, max_fetch=budget,
+                )
+                return {"folder": f, "count": len(hits), **stats}
 
         out_mod.out(for_accounts(accounts, fn_count))
         return
@@ -187,22 +197,25 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
         with ImapClient.connect(cfg.endpoint, account) as c:
             folders = c.list_folders() if all_folders else [c.resolve_folder(folder, "all")]
             recs: list[dict] = []
+            seen: set[str] = set()
             agg: dict = {"candidates": 0, "scanned": 0, "truncated": False}
             for f in folders:
+                # ask each folder only for what is still missing: with 35 folders, asking
+                # every one for the full limit fetches 35x more than the answer needs
+                remaining = None if cap is None else cap - len(recs)
+                if remaining is not None and remaining <= 0:
+                    agg.update(truncated=True, reason="limit")  # folders left unscanned
+                    break
                 found, stats = c.search(
-                    sel["criteria"], folder=f, limit=cap,
+                    sel["criteria"], folder=f, limit=remaining,
                     with_body=with_body or sel["with_body"],
                     with_attachments=with_attachments or sel["with_attachments"],
                     include_headers=sel["include_headers"], keep=sel["keep"],
                     scan_needs_body=sel["scan_needs_body"],
                     with_attachment_text=sel["with_attachment_text"], max_fetch=budget,
                 )
-                recs.extend(found)
                 _merge_stats(agg, stats)
-            recs = dedup_by_message_id(recs)
-            if cap and len(recs) > cap:
-                recs = recs[:cap]
-                agg.update(truncated=True, reason="limit")
+                recs.extend(dedup_by_message_id(found, seen))
             if ids_only:
                 recs = [{"account": r["account"], "folder": r["folder"], "uid": r["uid"],
                          "message_id": r["message_id"]} for r in recs]
@@ -213,6 +226,9 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
 
 @message_group.command("senders")
 @click.option("--folder", default=None, help="Folder; without it: All Mail (everything).")
+@click.option("--all-folders", "all_folders", is_flag=True,
+              help="Scan every folder except All Mail and report per sender where the mails "
+                   "sit (deduplicated by Message-ID) — the view a folder-wise cleanup needs.")
 @click.option("--since", default=None)
 @click.option("--before", default=None)
 @click.option("--seen/--unseen", default=None)
@@ -222,11 +238,13 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
 @click.option("--max-fetch", "max_fetch", type=int, default=0,
               help="Stop after N scanned messages (0 = no budget); reported as truncated.")
 @click.pass_context
-def senders_cmd(ctx, folder, since, before, seen, min_count, limit, max_fetch) -> None:
+def senders_cmd(ctx, folder, all_folders, since, before, seen, min_count, limit,
+                max_fetch) -> None:
     """Who sends the most: count, last date and last subject per From address.
 
-    Headers only — no body fetch. `list_unsubscribe` marks senders that offer an unsubscribe
-    header; that is a bulk-sender hint, not a reason to delete.
+    Headers only — no body fetch. `folders` says where a sender's mails sit.
+    `list_unsubscribe` marks senders that offer an unsubscribe header; that is a bulk-sender
+    hint, not a reason to delete.
     """
     cfg = cfgmod.resolve_config()
     accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="read")
@@ -235,13 +253,12 @@ def senders_cmd(ctx, folder, since, before, seen, min_count, limit, max_fetch) -
 
     def fn(account):
         with ImapClient.connect(cfg.endpoint, account) as c:
-            f = c.resolve_folder(folder, "all")
-            rows, stats = c.sender_stats(crit, folder=f, max_fetch=_cap(max_fetch))
+            scope = c.list_folders() if all_folders else [c.resolve_folder(folder, "all")]
+            rows, stats = c.sender_stats(crit, scope, max_fetch=_cap(max_fetch))
             rows.sort(key=lambda r: (-r["count"], r["from"]))
             kept = [r for r in rows if r["count"] >= min_count]
             shown = kept[:cap] if cap else kept
-            return shown, {"senders": {**stats, "folder": f, "senders_total": len(kept),
-                                       "limit": cap}}
+            return shown, {"senders": {**stats, "senders_total": len(kept), "limit": cap}}
 
     out_mod.out(for_accounts(accounts, fn))
 

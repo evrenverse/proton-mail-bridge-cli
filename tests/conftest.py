@@ -111,7 +111,7 @@ class FakeMailBox:
               headers_only=False):
         self.fetch_calls.append(
             {"criteria": criteria, "limit": limit, "mark_seen": mark_seen, "bulk": bulk,
-             "reverse": reverse, "headers_only": headers_only}
+             "reverse": reverse, "headers_only": headers_only, "folder": self.folder.current}
         )
         msgs = list(self._store.get(self.folder.current, []))
         # honour `AND(uid=...)` → "(UID 1,2)": a UID the folder does not hold returns nothing

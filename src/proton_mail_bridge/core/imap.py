@@ -327,13 +327,22 @@ class ImapClient:
             for rec in self._scan(uids, folder, stats, max_fetch=max_fetch,
                                   headers_only=True):
                 key = rec["message_id"] or f"{folder}:{rec['uid']}"
-                if key in seen:
+                if key in seen:  # same mail under a label: counted once, but the folder
+                    self._note_folder(agg, rec, folder)  # still holds a copy to clean up
                     continue
                 seen.add(key)
                 self._add_sender(agg, rec, folder)
             if stats["truncated"]:  # budget spent — the remaining folders stay unscanned
                 break
         return list(agg.values()), stats
+
+    @staticmethod
+    def _note_folder(agg: dict[str, dict], rec: dict, folder: str) -> None:
+        """`count` counts messages, `folders` counts copies: a labelled mail is one message
+        but sits in two folders, and a cleanup has to visit both."""
+        entry = agg.get((rec["from"] or "").lower())
+        if entry is not None:
+            entry["folders"][folder] = entry["folders"].get(folder, 0) + 1
 
     @staticmethod
     def _add_sender(agg: dict[str, dict], rec: dict, folder: str) -> None:

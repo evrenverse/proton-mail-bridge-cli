@@ -76,11 +76,19 @@ Commands without the flag change nothing (`search`, `read`, `list`, `mailbox lis
   - `--list-unsubscribe`: only messages carrying the RFC 2369 header. A selection criterion,
     **not** a verdict — notifications from project tools and portals set it too
   - `--ids-only`: only `account/folder/uid/message_id` per hit — token-efficient for search→move/delete pipelines
-  - `--count-only`: exact server-side count without fetching messages (ignores `--limit`; not combinable with any client-side criterion or `--all-folders` — counting those means fetching them, and a count over a window is worse than no count)
-- `pmb --json message senders [--folder F --since D --before D --seen/--unseen --min-count N --limit N --max-fetch N]`
-  — count, display name, `last_date`, `last_subject` and a `list_unsubscribe` hint per From
-  address, ranked by count. Headers only, no body fetch. `senders` block reports `scanned`,
-  `truncated` and `senders_total` (how many senders the top-N was cut from)
+  - `--count-only`: exact count, `--limit` is ignored. Server-side criteria are answered by
+    UID SEARCH without fetching a message; a client-side criterion is *scanned* and the count
+    comes with `scanned`/`truncated`, so an incomplete count is recognizable as one. Not
+    combinable with `--all-folders` (a labelled mail would be counted once per folder) or
+    `--ids-only`
+- `pmb --json message senders [--folder F --all-folders --since D --before D --seen/--unseen --min-count N --limit N --max-fetch N]`
+  — count, display name, `last_date`, `last_subject`, a `list_unsubscribe` hint and `folders`
+  per From address, ranked by count. Headers only, no body fetch. `senders` block reports
+  `scanned`, `truncated`, `folders`/`skipped_folders` and `senders_total` (how many senders
+  the top-N was cut from)
+  - `--all-folders` scans every folder except All Mail and deduplicates by Message-ID:
+    `count` counts messages, `folders` counts copies, so a labelled mail raises the count
+    once while still naming both folders a cleanup has to visit
 - `pmb --json message read --uid 1,2,3 [--folder F --format text|html|both|raw --include-headers]`
 - `pmb --json message raw --uid U [--folder F --output PATH]`
 - `pmb --json --account A message move --uid U --to DEST [--folder F --yes --dry-run]` 🟡
