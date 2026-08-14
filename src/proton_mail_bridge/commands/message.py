@@ -23,11 +23,11 @@ def _cap(limit: int | None) -> int | None:
     return limit if limit else None
 
 
-# Selection criteria, defined once so every command that selects messages selects the same
-# way — and so the split between server-side and client-side stays in one place.
+# Selection criteria shared by `search`, `bulk-move` and `bulk-delete` — one definition, so a
+# bulk operation selects exactly what the same options would have found in a search.
 SELECT_OPTS = [
     click.option("--from", "from_", default=None),
-    click.option("--to", default=None),
+    click.option("--to", default=None, help="Recipient filter (bulk: the destination is --dest)."),
     click.option("--cc", default=None),
     click.option("--subject", default=None),
     click.option("--text", default=None, help="Body text; filtered client-side (fetches bodies)."),
@@ -404,6 +404,144 @@ def delete_cmd(ctx, uid, folder, expunge, assume_yes, dry_run) -> None:
             c.move(uids, folder=folder, dest=trash)
             action = f"moved to {trash}"
     out_mod.out_ok(f"{len(uids)} {action}.")
+
+
+def _bulk_select(client, sel: dict, folder: str | None, all_folders: bool,
+                 cap: int | None, budget: int | None, skip: set[str]) -> tuple[list[dict], dict]:
+    """Run the selection folder by folder. Returns one group per folder that has hits.
+
+    All Mail is skipped: it is a duplicate view over every other folder and read-only, so
+    every hit there is already covered by the folder the mail really lives in.
+    """
+    folders = client.list_folders() if all_folders else [folder or "INBOX"]
+    groups: list[dict] = []
+    agg: dict = {"candidates": 0, "scanned": 0, "truncated": False,
+                 "skipped_folders": []}
+    for f in folders:
+        if f in skip or client.is_all_mail(f):
+            agg["skipped_folders"].append(f)
+            continue
+        recs, stats = client.search(
+            sel["criteria"], folder=f, limit=cap, with_body=sel["with_body"],
+            with_attachments=False, include_headers=sel["include_headers"],
+            keep=sel["keep"], scan_needs_body=sel["scan_needs_body"], max_fetch=budget,
+        )
+        _merge_stats(agg, stats)
+        if recs:
+            groups.append({
+                "folder": f,
+                "count": len(recs),
+                "uids": [r["uid"] for r in recs],
+                "messages": [{"uid": r["uid"], "folder": f, "date": r["date"],
+                              "from": r["from"], "subject": r["subject"]} for r in recs],
+            })
+    return groups, agg
+
+
+bulk_scope_opts = [
+    click.option("--folder", default=None, help="Single folder (default INBOX)."),
+    click.option("--all-folders", "all_folders", is_flag=True,
+                 help="Every folder except All Mail (which is a read-only duplicate view)."),
+    click.option("--limit", type=int, default=0,
+                 help="Cap the selection PER FOLDER (0 = every match)."),
+    click.option("--max-fetch", "max_fetch", type=int, default=0,
+                 help="Stop the client-side scan after N fetched messages per folder "
+                      "(0 = no budget); an exhausted budget is reported as truncated."),
+    click.option("--yes", "assume_yes", is_flag=True),
+]
+
+
+def bulk_options(fn):
+    for opt in reversed(bulk_scope_opts):
+        fn = opt(fn)
+    return select_options(fn)
+
+
+@message_group.command("bulk-move")
+@bulk_options
+@click.option("--dest", required=True,
+              help="Destination folder (--to keeps its search meaning: recipient).")
+@out_mod.dry_run_option
+@click.pass_context
+def bulk_move_cmd(ctx, dest, folder, all_folders, limit, max_fetch, assume_yes, dry_run,
+                  **selection) -> None:
+    """Move every message matching the selection, folder by folder (🟡/🔴 from 20 on)."""
+    from proton_mail_bridge.core import guard
+
+    cfg, account = _resolve_one(ctx)
+    sel = _selection(**selection)
+    with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(dest, "message bulk-move --dest")
+        if folder:
+            c.ensure_writable(folder, "message bulk-move")
+        groups, stats = _bulk_select(c, sel, folder, all_folders, _cap(limit),
+                                     _cap(max_fetch), skip={dest})
+        total = sum(g["count"] for g in groups)
+        risk = guard.escalate(guard.CONFIRM, count=total)
+        if dry_run:
+            out_mod.out_plan("message bulk-move", {
+                "account": account.email, "risk": risk, "dest": dest, "total": total,
+                "folders": groups, "search": stats,
+            })
+            return
+        if not total:
+            out_mod.out({"ok": True, "action": "message bulk-move", "account": account.email,
+                         "total": 0, "folders": [], "search": stats})
+            return
+        guard.enforce(f"message bulk-move {total} messages → {dest}", risk,
+                      assume_yes=assume_yes)
+        done = []
+        for g in groups:
+            c.move(g["uids"], folder=g["folder"], dest=dest)
+            done.append({"folder": g["folder"], "count": g["count"], "uids": g["uids"]})
+    out_mod.out({"ok": True, "action": "message bulk-move", "account": account.email,
+                 "dest": dest, "total": total, "folders": done, "search": stats})
+
+
+@message_group.command("bulk-delete")
+@bulk_options
+@click.option("--expunge", is_flag=True, help="Delete permanently instead of moving to Trash.")
+@out_mod.dry_run_option
+@click.pass_context
+def bulk_delete_cmd(ctx, folder, all_folders, limit, max_fetch, assume_yes, expunge,
+                    dry_run, **selection) -> None:
+    """Delete every message matching the selection, folder by folder (🟡; 🔴 permanent/≥ 20)."""
+    from proton_mail_bridge.core import guard
+
+    cfg, account = _resolve_one(ctx)
+    sel = _selection(**selection)
+    with ImapClient.connect(cfg.endpoint, account) as c:
+        if folder:
+            c.ensure_writable(folder, "message bulk-delete")
+        trash = c.special_folders().get("trash", "Trash")
+        # soft delete = move to Trash, so Trash itself has nothing to contribute
+        groups, stats = _bulk_select(c, sel, folder, all_folders, _cap(limit),
+                                     _cap(max_fetch), skip=set() if expunge else {trash})
+        total = sum(g["count"] for g in groups)
+        risk = guard.CRITICAL if expunge else guard.escalate(guard.CONFIRM, count=total)
+        if dry_run:
+            out_mod.out_plan("message bulk-delete", {
+                "account": account.email, "risk": risk, "permanent": expunge,
+                "to": None if expunge else trash, "total": total,
+                "folders": groups, "search": stats,
+            })
+            return
+        if not total:
+            out_mod.out({"ok": True, "action": "message bulk-delete", "account": account.email,
+                         "total": 0, "folders": [], "search": stats})
+            return
+        guard.enforce(f"message bulk-delete {total} messages permanent={expunge}", risk,
+                      assume_yes=assume_yes, token="delete")
+        done = []
+        for g in groups:
+            if expunge:
+                c.delete(g["uids"], folder=g["folder"])
+            else:
+                c.move(g["uids"], folder=g["folder"], dest=trash)
+            done.append({"folder": g["folder"], "count": g["count"], "uids": g["uids"]})
+    out_mod.out({"ok": True, "action": "message bulk-delete", "account": account.email,
+                 "permanent": expunge, "to": None if expunge else trash, "total": total,
+                 "folders": done, "search": stats})
 
 
 def register(root: click.Group) -> None:

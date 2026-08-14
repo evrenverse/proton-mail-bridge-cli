@@ -25,6 +25,8 @@ WRITING_COMMANDS = {
     "bridge config",
     "mailbox create",
     "message move",
+    "message bulk-move",
+    "message bulk-delete",
     "message copy",
     "message flag",
     "message mark",
