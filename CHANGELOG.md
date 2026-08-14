@@ -1,6 +1,37 @@
 # Changelog
 
 ## Unreleased
+- **Fix: `message search --limit` bounded the fetch, not the matches.** Client-side criteria
+  (`--text`, `--header`, `--has-attachments`, non-ASCII values) ran *after* the limit had cut
+  the fetch, so the same search returned 7 hits at `--limit 50`, 21 at `--limit 200` and 111
+  at `--limit 2000` — every answer plausible, incomplete, and silent about it. The search now
+  takes the server-side match set once and pages through it, filtering while it reads, until
+  the limit is met or the scope is exhausted.
+- Every `message search` result carries a `search` block next to `items`: `candidates`,
+  `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`. `items` keeps
+  its shape. `--limit 0` returns all matches; `--max-fetch N` caps the scan and reports the
+  exhausted budget instead of cutting silently.
+- The scan reads `BODY.PEEK[HEADER]` whenever the criteria need neither body nor attachments
+  and fetches only the hits in full, so header searches stay usable on large mailboxes.
+  `--count-only` now rejects *every* client-side criterion through the predicate itself instead
+  of an enumerated flag list; `--header` searches no longer return bodies nobody asked for.
+- `message bulk-move --dest F` and `message bulk-delete [--expunge]`: same selection options as
+  `search`, executed folder by folder, one entry per folder (`count`, `uids`, and in the dry run
+  every message). All Mail, the destination, and Trash on a soft delete are skipped and named in
+  `skipped_folders`. The guard sees the total: ≥ 20 or `--expunge` is 🔴.
+- `message senders`: count, display name, last date and last subject per From address, ranked by
+  count, headers only. `--min-count`, `--limit` (top N), `--max-fetch`, plus `senders_total`, so
+  a top-N never reads as the whole list.
+- Writes to `All Mail` (`move`/`copy`/`flag`/`mark`/`delete`, and both move/copy destinations)
+  are refused with `type: "read_only"` and a pointer to working folder by folder. The folder is
+  recognized by its `\All` special-use flag, so localized names are caught too.
+- `message delete --log FILE` / `bulk-delete --log FILE`: one JSON line per message (`ts`,
+  `action`, `account`, `folder`, `uid`, `date`, `from`, `subject`), written before the delete.
+  Without it the only record of a permanently deleted message is its absence.
+- Message summaries gained `list_unsubscribe` (RFC 2369 targets split into `http`/`mailto`, plus
+  the RFC 8058 `one_click` flag) and `from_name`. `message search --list-unsubscribe` filters on
+  it — a selection criterion, never an automatic delete recommendation: project and portal
+  notifications set the header too.
 - Fix: `skill install --agent codex` now ships the long-form guide as `references/SKILL.md`
   (linked from the AGENTS.md footer) instead of only `AGENTS.md` + references.
 

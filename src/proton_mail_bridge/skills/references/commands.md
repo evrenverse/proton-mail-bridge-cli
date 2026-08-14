@@ -58,20 +58,53 @@ Commands without the flag change nothing (`search`, `read`, `list`, `mailbox lis
 `list`/`search` return **newest first**.
 
 - `pmb --json message list [--folder F --limit N --offset N --unread --since YYYY-MM-DD]`
-- `pmb --json message search [--from A --to A --cc A --subject S --text T --since D --before D --seen/--unseen --flagged --larger BYTES --smaller BYTES --header Key:Value --folder F --with-body --with-attachments --has-attachments --limit N --all-folders --ids-only --count-only]`
+- `pmb --json message search [--from A --to A --cc A --subject S --text T --since D --before D --seen/--unseen --flagged --larger BYTES --smaller BYTES --header Key:Value --list-unsubscribe --folder F --with-body --with-attachments --has-attachments --limit N --max-fetch N --all-folders --ids-only --count-only]`
+  - `--limit` bounds the **matches** (0 = all). Criteria the server cannot decide (`--text`,
+    `--header`, `--has-attachments`, `--list-unsubscribe`, non-ASCII values) are filtered while
+    the search pages through the scope, so the hit count no longer depends on the limit
+  - `--max-fetch N`: stop the client-side scan after N fetched messages (0 = no budget)
+  - every result carries a `search` block next to `items`: `candidates` (server-side matches in
+    scope), `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`.
+    `truncated: true` = the answer is incomplete, and the reason says which knob to turn
+  - `--list-unsubscribe`: only messages carrying the RFC 2369 header. A selection criterion,
+    **not** a verdict — notifications from project tools and portals set it too
   - `--ids-only`: only `account/folder/uid/message_id` per hit — token-efficient for search→move/delete pipelines
-  - `--count-only`: exact server-side count without fetching messages (ignores `--limit`; not combinable with `--text`/`--header`/`--has-attachments`/`--all-folders`/non-ASCII values)
+  - `--count-only`: exact server-side count without fetching messages (ignores `--limit`; not combinable with any client-side criterion or `--all-folders` — counting those means fetching them, and a count over a window is worse than no count)
+- `pmb --json message senders [--folder F --since D --before D --seen/--unseen --min-count N --limit N --max-fetch N]`
+  — count, display name, `last_date`, `last_subject` and a `list_unsubscribe` hint per From
+  address, ranked by count. Headers only, no body fetch. `senders` block reports `scanned`,
+  `truncated` and `senders_total` (how many senders the top-N was cut from)
 - `pmb --json message read --uid 1,2,3 [--folder F --format text|html|both|raw --include-headers]`
 - `pmb --json message raw --uid U [--folder F --output PATH]`
 - `pmb --json --account A message move --uid U --to DEST [--folder F --yes --dry-run]` 🟡
 - `pmb --json --account A message copy --uid U --to DEST [--folder F --dry-run]`
 - `pmb --json --account A message flag --uid U [--add F --remove F --folder F --yes --dry-run]`
 - `pmb --json --account A message mark --uid U --read|--unread [--folder F --dry-run]`
-- `pmb --json --account A message delete --uid U [--folder F --expunge --yes --dry-run]` 🟡/🔴
+- `pmb --json --account A message delete --uid U [--folder F --expunge --yes --log FILE --dry-run]` 🟡/🔴
   - dry run reports `permanent` (`--expunge`/from Trash) and, for the soft delete, the
     resolved Trash folder as `to`
+  - `--log FILE` appends one JSON line per message (`ts`, `action`, `account`, `folder`, `uid`,
+    `date`, `from`, `subject`) *before* the delete — the only record that survives `--expunge`
 - `message read --mark-read` has no `--dry-run`: reading is PEEK anyway, and simulating the
   flag means leaving `--mark-read` off
+
+### Bulk across folders
+
+Same selection options as `search`; the destination of a bulk move is `--dest`, because `--to`
+keeps its search meaning (recipient). Both run the selection per folder and execute per folder.
+
+- `pmb --json --account A message bulk-move --dest F [<selection> --folder F --all-folders --limit N --max-fetch N --yes --dry-run]` 🟡/🔴
+- `pmb --json --account A message bulk-delete [<selection> --folder F --all-folders --expunge --limit N --max-fetch N --yes --log FILE --dry-run]` 🟡/🔴
+
+| field | meaning |
+|---|---|
+| `total` | messages across all folders |
+| `folders[]` | per folder: `folder`, `count`, `uids` (dry run additionally `messages[]`) |
+| `search.skipped_folders` | folders left out: All Mail (read-only duplicate view), the destination, and Trash on a soft delete |
+| `risk` | `confirm`, `critical` from 20 messages on and for `--expunge` |
+
+`--limit` caps the selection **per folder** (0 = every match); `--folder "All Mail"` is
+refused. Without `--all-folders` the scope is `--folder` (default INBOX).
 
 ## compose
 

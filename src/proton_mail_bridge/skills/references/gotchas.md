@@ -18,13 +18,36 @@ Message-ID**; the default scope `All Mail` contains each mail only once.
 ## All Mail
 
 Best "search everything" view, but by default it **also contains Spam/Trash** (excludable in
-the Proton web settings) and is effectively **read-only** — do not use it for moving/deleting.
+the Proton web settings) and is **read-only**: `move`/`delete`/`flag`/`mark` with
+`--folder "All Mail"` are refused with `{"error": {"type": "read_only", …}}` — resolved via the
+`\All` special-use flag, so the localized name is caught too.
+
+It is also a **duplicate view**: every hit there also lives in a real folder. Deleting "via All
+Mail" is therefore impossible by design — work per folder (`--all-folders`, or
+`message bulk-move`/`bulk-delete`, which skip All Mail and say so in `skipped_folders`).
+
+Since `search` defaults to All Mail, its results carry `folder: "All Mail"`. Passing that
+straight into a write operation is the trap the guard catches.
 
 ## Search
 
 - Headers (`--from/--to/--cc/--subject`) and dates (`--since/--before`) run server-side.
 - **Body (`--text`) and non-ASCII/umlauts** are unreliable server-side (Gluon IMAP) →
   the CLI filters client-side (fetches bodies). Narrow large mailboxes with `--folder`/`--since`.
+- **`--limit` counts matches, not fetched messages.** With a client-side criterion the search
+  pages through the scope until it has that many hits or the scope is exhausted. That is
+  correct but not free: on a large mailbox a `--text` search reads a lot of bodies. Header-only
+  criteria (`--header`, `--list-unsubscribe`) scan with `BODY.PEEK[HEADER]` and only fetch the
+  hits in full.
+- **Read `search.truncated`.** `reason: "limit"` = more matches exist (raise `--limit`, `0` =
+  all); `reason: "fetch_budget"` = `--max-fetch` ran out. Nothing is ever cut silently.
+
+## List-Unsubscribe is not a synonym for advertising
+
+The RFC 2369 header (plus RFC 8058 one-click) is the standard bulk-sender signal and drives
+Proton's own unsubscribe button — but project boards, portals, banks and service providers set
+it on notifications you cannot afford to lose. `--list-unsubscribe` narrows a selection; the
+decision stays with the human.
 
 ## IMAP capabilities
 
@@ -83,3 +106,14 @@ probes Windows host candidates (gateway/nameserver). Native macOS/Linux: plain
 
 UIDs are unique per account+folder → always pass `account` + `folder` + `uid` through from the
 search result for follow-up ops.
+
+Gluon returns the UID **after** the literal, in the next element of the FETCH response:
+
+```
+(b'2 (FLAGS (\Seen) BODY[HEADER.FIELDS (...)] {2}', b'\r\n')
+b' UID 3)'
+```
+
+Anything scanning only the leading part for `UID (\d+)` finds nothing and loses every UID
+silently. `imap_tools` reads both places; the CLI never parses FETCH responses itself. A test
+pins this, because an upgrade could break it without a single error message.

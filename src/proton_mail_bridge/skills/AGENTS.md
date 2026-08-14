@@ -21,8 +21,18 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
   original was sent to.
 - **Search folder-smart**: no `--folder` → `All Mail`; "sent" → `--folder Sent`;
   "received" → `--folder INBOX`. Names are localized → `pmb --json account info` shows the map.
+- **`--limit` bounds the matches**, not the fetch: a client-side criterion (`--text`,
+  `--header`, `--has-attachments`, `--list-unsubscribe`, umlauts) keeps reading until the
+  limit is met or the scope is exhausted. Every result carries a `search` block
+  (`candidates`, `scanned`, `truncated`, `reason`) — **check `truncated` before acting on it**.
+  `--limit 0` = all matches, `--max-fetch N` caps the scan.
 - **Follow-up ops**: pass `account` + `folder` + `uid` through from the search result
-  (UIDs are unique per account+folder).
+  (UIDs are unique per account+folder). `All Mail` is read-only: writes there are refused
+  (`type: "read_only"`) — work per folder or use `message bulk-move`/`bulk-delete`.
+- **Cleaning up**: `message senders` ranks who sends the most (headers only);
+  `message bulk-move --dest F` / `message bulk-delete` select by the same criteria as `search`
+  and run folder by folder (`--dest`, because `--to` stays the recipient filter);
+  `delete --log FILE` records what a permanent delete removed.
 - **Discovery**: `pmb --help`, `pmb <group> --help`, `pmb --json describe <path...>`
   (e.g. `describe account identity add`), `pmb --json fields message`.
 - **Writes** (move/copy/flag/mark/delete, folder create, send/reply/forward/draft, attachment
@@ -48,6 +58,8 @@ discover` has none either — without `--save` it already is the preview.
 - macOS: Bridge SMTP is often in SSL mode → `bridge config --smtp-security ssl` (autodetected by `account add`).
 - WSL→Windows: 127.0.0.1 → Windows-host fallback; diagnosis `pmb bridge doctor`.
 - Labels: the same mail can live in INBOX + Labels/X + All Mail (same Message-ID, different UIDs).
+- `List-Unsubscribe` marks bulk senders, **not** advertising: project and portal notifications
+  set it too. A selection criterion, never an automatic delete recommendation.
 
 Full reference: `references/commands.md` | Workflows: `references/workflows.md` |
 Details: `references/gotchas.md` | Long form of this guide: `references/SKILL.md`

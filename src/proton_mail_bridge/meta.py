@@ -7,10 +7,21 @@ from proton_mail_bridge.utils import output as out_mod
 _FIELDS = {
     "message": {
         "summary": [
-            "account", "uid", "folder", "message_id", "date", "date_str", "from", "to",
-            "cc", "subject", "flags", "size", "has_attachments", "attachment_count", "snippet",
+            "account", "uid", "folder", "message_id", "date", "date_str", "from", "from_name",
+            "list_unsubscribe", "to", "cc", "subject", "flags", "size", "has_attachments",
+            "attachment_count", "snippet",
         ],
         "full": ["...summary...", "body_text", "body_html", "headers", "attachments"],
+        "list_unsubscribe": {
+            "shape": {"http": ["url"], "mailto": ["mailto:…"], "one_click": "bool"},
+            "null_when": "the message carries no List-Unsubscribe header (RFC 2369)",
+            "note": "bulk-sender signal, not a verdict — notifications set it too",
+        },
+        "search": {
+            "note": "sibling of 'items' in message search/senders results",
+            "fields": ["candidates", "scanned", "truncated", "reason", "limit", "folders"],
+            "truncated": "the answer is incomplete; reason is 'limit' or 'fetch_budget'",
+        },
     },
     "folder": {"fields": ["name", "MESSAGES", "UNSEEN", "UIDVALIDITY", "UIDNEXT"]},
     "attachment": {"fields": ["filename", "content_type", "size", "content_id", "inline"]},

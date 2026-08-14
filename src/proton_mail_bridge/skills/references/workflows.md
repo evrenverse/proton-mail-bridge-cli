@@ -58,13 +58,37 @@ pmb --json --account me@proton.me message move --uid 10,11,12 --folder INBOX --t
 ## Bulk cleanup (search → preview → delete)
 
 ```bash
-pmb --json message search --from newsletter@x.com --folder INBOX --ids-only --limit 500
+pmb --json message search --from newsletter@example.com --folder INBOX --ids-only --limit 500
 pmb --json --account me@proton.me message delete --uid <ids> --folder INBOX --dry-run
 # → "permanent": false and "to": "<Trash>" means it is the reversible soft delete;
 #   "risk": "critical" means the real run needs a human terminal (bulk ≥ 20)
 ```
 
 Hand the dry run to the user and let them run the delete themselves when it is 🔴.
+
+## Clean up a large mailbox (senders → criterion → folder-wise)
+
+```bash
+# 1. Who is responsible for the volume? Headers only, so it works on 30k messages.
+pmb --json message senders --min-count 20
+# → count, name, last_date, last_subject, list_unsubscribe per sender
+
+# 2. Preview the selection across every folder -- one entry per folder.
+pmb --json --account me@proton.me message bulk-delete --all-folders \
+    --from newsletter@example.com --before 2026-01-01 --dry-run
+# → total, folders[] with count/uids/messages, search.skipped_folders (All Mail, Trash)
+
+# 3. The human runs it. Bulk >= 20 is 🔴 and needs a terminal.
+pmb --json --account me@proton.me message bulk-delete --all-folders \
+    --from newsletter@example.com --before 2026-01-01 --log ~/deleted.jsonl
+```
+
+Check `search.truncated` in every step: `true` means the selection is incomplete
+(`reason: "limit"` → raise `--limit`, `0` = all; `"fetch_budget"` → raise `--max-fetch`).
+
+`--list-unsubscribe` narrows to messages that offer an unsubscribe link — useful for finding
+bulk senders, but it is **not** proof of advertising: project boards and portals set the header
+on notifications that matter. Show the list, let the human decide.
 
 ## List unread mails across all accounts
 

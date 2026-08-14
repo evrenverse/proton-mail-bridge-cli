@@ -43,6 +43,24 @@ Operating rules (details in the skill):
    `pmb fields message`.
 5. **Write operations**: `--dry-run` first (every writing command has it), never pass `--yes`
    on your own.
+6. **Read `search.truncated`**: `--limit` bounds the matches, and a result that had to stop
+   early says so instead of looking complete.
+
+## Cleaning up a mailbox
+
+```bash
+pmb --json message senders --min-count 20          # who sends the volume (headers only)
+pmb --json message search --list-unsubscribe --limit 0   # everything with an unsubscribe link
+pmb --json --account you@proton.me message bulk-delete --all-folders \
+    --from newsletter@example.com --dry-run        # preview, one entry per folder
+```
+
+`bulk-move --dest F` and `bulk-delete` take the same selection options as `search`, run folder
+by folder and skip All Mail (read-only duplicate view). `--log FILE` writes one JSON line per
+deleted message — the only record that survives `--expunge`.
+
+`List-Unsubscribe` is a bulk-sender signal, **not** proof of advertising: project boards and
+portals set it on notifications that matter. Selection criterion, never an auto-delete rule.
 
 ## Configuration
 

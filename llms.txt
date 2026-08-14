@@ -19,6 +19,9 @@
   `pmb fields message`.
 - Writes are risk-tiered (🟢/🟡/🔴); every writing command previews with `--dry-run` (changes
   nothing, needs no confirmation); never auto-`--yes`.
+- `--limit` bounds the matches, not the fetch; read `search.truncated` before acting on a
+  result. Cleaning up: `message senders`, `message bulk-move`/`bulk-delete` (folder by folder,
+  All Mail is read-only), `delete --log FILE`.
 
 ## Docs
 - README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md
