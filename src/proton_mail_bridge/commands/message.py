@@ -312,6 +312,32 @@ def _plan(client, action: str, account, uids: list[str], folder: str, risk: str,
     })
 
 
+def _write_log(path: str, action: str, account: str, messages: list[dict]) -> None:
+    """One JSON line per message, appended. Written *before* the delete: a log that
+    overstates is recoverable, a message that vanished without a trace is not."""
+    import json
+    import time
+    from pathlib import Path
+
+    target = Path(path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stamp = int(time.time())
+    with target.open("a", encoding="utf-8") as fh:
+        for m in messages:
+            fh.write(json.dumps({"ts": stamp, "action": action, "account": account,
+                                 "folder": m.get("folder"), "uid": m.get("uid"),
+                                 "date": m.get("date"), "from": m.get("from"),
+                                 "subject": m.get("subject")}, ensure_ascii=False) + "\n")
+
+
+log_option = click.option(
+    "--log", "log_path", type=click.Path(), default=None,
+    help="Append one JSON line per deleted message (folder, uid, from, subject, date). "
+         "Written before the delete — without it, the only record of a permanently deleted "
+         "message is its absence.",
+)
+
+
 @message_group.command("move")
 @click.option("--uid", required=True)
 @click.option("--to", "dest", required=True)
@@ -413,9 +439,10 @@ def mark_cmd(ctx, uid, read, folder, dry_run) -> None:
 @click.option("--folder", default="INBOX")
 @click.option("--expunge", is_flag=True)
 @click.option("--yes", "assume_yes", is_flag=True)
+@log_option
 @out_mod.dry_run_option
 @click.pass_context
-def delete_cmd(ctx, uid, folder, expunge, assume_yes, dry_run) -> None:
+def delete_cmd(ctx, uid, folder, expunge, assume_yes, log_path, dry_run) -> None:
     """Delete: without --expunge → Trash 🟡; --expunge / from Trash / bulk ≥ 20 → permanent 🔴."""
     from proton_mail_bridge.core import guard
 
@@ -428,10 +455,12 @@ def delete_cmd(ctx, uid, folder, expunge, assume_yes, dry_run) -> None:
         risk = guard.CRITICAL if permanent else guard.escalate(guard.CONFIRM, count=len(uids))
         if dry_run:
             _plan(c, "message delete", account, uids, folder, risk,
-                  permanent=permanent, to=None if permanent else trash)
+                  permanent=permanent, to=None if permanent else trash, log=log_path)
             return
         guard.enforce(f"message delete {uids} permanent={permanent}", risk,
                       assume_yes=assume_yes, token="delete")
+        if log_path:
+            _write_log(log_path, "message delete", account.email, c.preview(uids, folder))
         if permanent:
             c.delete(uids, folder=folder)
             action = "permanently deleted"
@@ -536,10 +565,11 @@ def bulk_move_cmd(ctx, dest, folder, all_folders, limit, max_fetch, assume_yes, 
 @message_group.command("bulk-delete")
 @bulk_options
 @click.option("--expunge", is_flag=True, help="Delete permanently instead of moving to Trash.")
+@log_option
 @out_mod.dry_run_option
 @click.pass_context
 def bulk_delete_cmd(ctx, folder, all_folders, limit, max_fetch, assume_yes, expunge,
-                    dry_run, **selection) -> None:
+                    log_path, dry_run, **selection) -> None:
     """Delete every message matching the selection, folder by folder (🟡; 🔴 permanent/≥ 20)."""
     from proton_mail_bridge.core import guard
 
@@ -557,7 +587,7 @@ def bulk_delete_cmd(ctx, folder, all_folders, limit, max_fetch, assume_yes, expu
         if dry_run:
             out_mod.out_plan("message bulk-delete", {
                 "account": account.email, "risk": risk, "permanent": expunge,
-                "to": None if expunge else trash, "total": total,
+                "to": None if expunge else trash, "total": total, "log": log_path,
                 "folders": groups, "search": stats,
             })
             return
@@ -567,6 +597,9 @@ def bulk_delete_cmd(ctx, folder, all_folders, limit, max_fetch, assume_yes, expu
             return
         guard.enforce(f"message bulk-delete {total} messages permanent={expunge}", risk,
                       assume_yes=assume_yes, token="delete")
+        if log_path:
+            _write_log(log_path, "message bulk-delete", account.email,
+                       [m for g in groups for m in g["messages"]])
         done = []
         for g in groups:
             if expunge:
