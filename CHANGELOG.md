@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-08-14)
 - **`message search` can look at attachments.** `--attachment-name` matches the filename,
   `--attachment-text` the text inside a PDF. `--text` only ever read the mail body, so a
   receipt forwarded as a bare attachment — no telling subject, nothing in the body — could
@@ -36,11 +36,20 @@
 - `message delete --log FILE` / `bulk-delete --log FILE`: one JSON line per message (`ts`,
   `action`, `account`, `folder`, `uid`, `date`, `from`, `subject`), written before the delete.
   Without it the only record of a permanently deleted message is its absence.
-- `message search --attachment-name S` matches a case-insensitive substring of an attachment
-  filename. `--text` reads bodies only, so a document forwarded as a bare attachment was
-  invisible to every other criterion; PDF *contents* remain out of reach.
 - `--max-fetch` holds exactly: the budget used to be checked only between fetch rounds, so
   `--max-fetch 50` scanned 200. The last round now takes only what the budget has room for.
+- `--count-only` no longer refuses client-side criteria: it scans, counts, and reports
+  `scanned`/`truncated` with the number, so an incomplete count is recognizable as one. Still
+  refused with `--all-folders`, where a labelled mail would be counted once per folder.
+- `message senders --all-folders` scans every folder but All Mail, deduplicates by Message-ID
+  and reports `folders` per sender: `count` counts messages, `folders` counts copies, so one
+  labelled mail raises the count once while naming both folders a cleanup has to visit.
+  Across folders the newest mail is picked by parsed timestamp — ISO strings with different
+  offsets do not sort as text.
+- `--all-folders` asks each folder only for the matches still missing instead of the full
+  `--limit` (35 folders x 50 messages fetched to return 50), and skips All Mail, whose UIDs no
+  write operation accepts — the Bridge does not list folders in a stable order, so without the
+  skip it was luck whether a deduplicated hit came back writable.
 - Message summaries gained `list_unsubscribe` (RFC 2369 targets split into `http`/`mailto`, plus
   the RFC 8058 `one_click` flag) and `from_name`. `message search --list-unsubscribe` filters on
   it — a selection criterion, never an automatic delete recommendation: project and portal
