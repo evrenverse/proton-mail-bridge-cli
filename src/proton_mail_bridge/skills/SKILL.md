@@ -112,6 +112,9 @@ show the result — never as an automatic reason to delete.
 - Identify vendors: `pmb --json message search --text "order" --since 2026-01-01 --with-body`
 - Collect invoices: `pmb --json message search --folder Sent --to client@x.com --with-attachments`
   then `pmb --json attachment download --uid <ids> --all --dir ./invoices`
+- Hunt a missing document: `pmb --json message search --attachment-name rechnung --since 2026-06-01`
+  — `--text` reads bodies only, so a receipt forwarded as a bare attachment is invisible to it.
+  When looking for documents, always run the `--attachment-name` pass as well.
 - Send mail: `pmb --json compose send --to a@x.com --subject "..." --body "..." --dry-run`
   → review → send without `--dry-run`
 - Clean up in bulk: `message search --ids-only` → `message move --uid <ids> --to Trash --dry-run`
@@ -125,6 +128,9 @@ show the result — never as an automatic reason to delete.
   with `--folder`/`--since`. Client-side criteria scan the scope until the limit is reached,
   so on a 30k mailbox a `--text` search is slow by nature; `--max-fetch N` caps it and says
   so in `search.truncated`.
+- **`--text` never sees attachments** — not the filenames, not the contents. Use
+  `--attachment-name` for the filenames; PDF contents are out of reach entirely, so a
+  "nothing found" verdict on a document hunt has to say that out loud.
 - **All Mail is read-only** — `move`/`delete`/`flag`/`mark` there are refused with
   `type: "read_only"`. Work per folder.
 - **TLS**: self-signed bridge certificate → unverified context by default. Pin via

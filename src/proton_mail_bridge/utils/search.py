@@ -52,7 +52,7 @@ def is_non_ascii(*values: str | None) -> bool:
 def predicate(
     *, text=None, from_=None, to=None, cc=None, subject=None,
     headers: list[tuple[str, str]] | None = None,
-    has_attachments: bool = False, list_unsubscribe: bool = False,
+    has_attachments: bool = False, attachment_name=None, list_unsubscribe: bool = False,
 ) -> Callable[[dict], bool] | None:
     """Client-side filter for everything Gluon handles unreliably server-side:
     body/text, non-ASCII values, header matches (case-insensitive substring), attachments
@@ -63,14 +63,22 @@ def predicate(
 
     headers: (key, value) pairs from --header; requires records with a "headers" field
     (search() with include_headers=True).
+
+    attachment_name: case-insensitive substring of an attachment filename; requires records
+    with an "attachments" field (search() with with_attachments=True).
     """
-    if not any([text, headers, has_attachments, list_unsubscribe,
+    if not any([text, headers, has_attachments, attachment_name, list_unsubscribe,
                 is_non_ascii(from_, to, cc, subject)]):
         return None
 
     def matches(r: dict) -> bool:
         if has_attachments and not r.get("has_attachments"):
             return False
+        if attachment_name:
+            n = attachment_name.lower()
+            names = [str(a.get("filename", "")) for a in (r.get("attachments") or [])]
+            if not any(n in name.lower() for name in names):
+                return False
         if list_unsubscribe and not r.get("list_unsubscribe"):
             return False
         if text:

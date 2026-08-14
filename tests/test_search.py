@@ -71,3 +71,19 @@ def test_predicate_list_unsubscribe_and_attachments():
     assert keep({"list_unsubscribe": {"http": ["https://example.com/u"]}}) is True
     assert keep({"list_unsubscribe": None}) is False
     assert search.predicate(has_attachments=True)({"has_attachments": False}) is False
+
+
+def test_predicate_attachment_name():
+    """--attachment-name is the only way to find a receipt forwarded without a telling
+    subject: --text reads bodies, never the names of the files hanging off the message."""
+    recs = [
+        {"subject": "Fwd:", "attachments": [{"filename": "Rechnung_26593328.pdf"}]},
+        {"subject": "Fotos", "attachments": [{"filename": "IMG_2509.jpeg"}]},
+        {"subject": "Nix", "attachments": []},
+        {"subject": "Ohne Feld"},
+    ]
+    keep = search.predicate(attachment_name="rechnung")
+    assert [r["subject"] for r in recs if keep(r)] == ["Fwd:"]
+    # case-insensitive, and a substring is enough
+    assert search.predicate(attachment_name="PDF")(recs[0]) is True
+    assert search.predicate(attachment_name="rechnung") is not None

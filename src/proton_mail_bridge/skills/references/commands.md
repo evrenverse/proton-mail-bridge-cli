@@ -58,14 +58,18 @@ Commands without the flag change nothing (`search`, `read`, `list`, `mailbox lis
 `list`/`search` return **newest first**.
 
 - `pmb --json message list [--folder F --limit N --offset N --unread --since YYYY-MM-DD]`
-- `pmb --json message search [--from A --to A --cc A --subject S --text T --since D --before D --seen/--unseen --flagged --larger BYTES --smaller BYTES --header Key:Value --list-unsubscribe --folder F --with-body --with-attachments --has-attachments --limit N --max-fetch N --all-folders --ids-only --count-only]`
+- `pmb --json message search [--from A --to A --cc A --subject S --text T --since D --before D --seen/--unseen --flagged --larger BYTES --smaller BYTES --header Key:Value --attachment-name S --list-unsubscribe --folder F --with-body --with-attachments --has-attachments --limit N --max-fetch N --all-folders --ids-only --count-only]`
   - `--limit` bounds the **matches** (0 = all). Criteria the server cannot decide (`--text`,
-    `--header`, `--has-attachments`, `--list-unsubscribe`, non-ASCII values) are filtered while
-    the search pages through the scope, so the hit count no longer depends on the limit
+    `--header`, `--has-attachments`, `--attachment-name`, `--list-unsubscribe`, non-ASCII
+    values) are filtered while the search pages through the scope, so the hit count no longer
+    depends on the limit
   - `--max-fetch N`: stop the client-side scan after N fetched messages (0 = no budget)
   - every result carries a `search` block next to `items`: `candidates` (server-side matches in
     scope), `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`.
     `truncated: true` = the answer is incomplete, and the reason says which knob to turn
+  - `--attachment-name S`: case-insensitive substring of an attachment filename. `--text`
+    reads bodies only, so this is the way to find a document that arrived as a bare
+    attachment; PDF *contents* stay out of reach
   - `--list-unsubscribe`: only messages carrying the RFC 2369 header. A selection criterion,
     **not** a verdict — notifications from project tools and portals set it too
   - `--ids-only`: only `account/folder/uid/message_id` per hit — token-efficient for search→move/delete pipelines

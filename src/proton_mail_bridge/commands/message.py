@@ -41,6 +41,10 @@ SELECT_OPTS = [
                  help="Header filter, form Key:Value (repeatable). Filtered client-side."),
     click.option("--has-attachments", "has_attachments", is_flag=True,
                  help="Only messages with attachments (filtered client-side)."),
+    click.option("--attachment-name", "attachment_name", default=None,
+                 help="Substring of an attachment filename, case-insensitive. --text only "
+                      "reads bodies, so this is the way to find a document that was "
+                      "forwarded as a bare attachment (filtered client-side)."),
     click.option("--list-unsubscribe", "list_unsub", is_flag=True,
                  help="Only messages carrying List-Unsubscribe (RFC 2369). A selection "
                       "criterion, not a verdict: project and portal notifications set the "
@@ -56,7 +60,8 @@ def select_options(fn):
 
 def _selection(*, from_=None, to=None, cc=None, subject=None, text=None, since=None,
                before=None, seen=None, flagged=False, larger=None, smaller=None,
-               header_filters=(), has_attachments=False, list_unsub=False) -> dict:
+               header_filters=(), has_attachments=False, attachment_name=None,
+               list_unsub=False) -> dict:
     """Split the selection options into a server-side criteria dict and a client-side
     predicate. `keep is None` means the server alone decides the result."""
     parsed_headers: list[tuple[str, str]] = []
@@ -77,11 +82,13 @@ def _selection(*, from_=None, to=None, cc=None, subject=None, text=None, since=N
         "keep": search_mod.predicate(
             text=text, from_=from_, to=to, cc=cc, subject=subject,
             headers=parsed_headers or None, has_attachments=has_attachments,
-            list_unsubscribe=list_unsub,
+            attachment_name=attachment_name, list_unsubscribe=list_unsub,
         ),
         # body text and attachments cannot be judged from headers → the scan must fetch fully
-        "scan_needs_body": bool(text) or has_attachments,
+        "scan_needs_body": bool(text) or has_attachments or bool(attachment_name),
         "with_body": bool(text),
+        # filenames only exist on the record when the fetch carries attachment metadata
+        "with_attachments": bool(attachment_name),
         "include_headers": bool(parsed_headers),
     }
 
@@ -155,7 +162,8 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
         if sel["keep"] is not None or all_folders:
             out_mod.out_err(
                 "usage", "--count-only counts server-side",
-                "not combinable with --text/--header/--has-attachments/--list-unsubscribe/"
+                "not combinable with --text/--header/--has-attachments/--attachment-name/"
+                "--list-unsubscribe/"
                 "--all-folders or non-ASCII values — those are decided client-side, and "
                 "counting them means fetching them: run the search without --count-only",
             )
@@ -176,7 +184,8 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
             for f in folders:
                 found, stats = c.search(
                     sel["criteria"], folder=f, limit=cap,
-                    with_body=with_body or sel["with_body"], with_attachments=with_attachments,
+                    with_body=with_body or sel["with_body"],
+                    with_attachments=with_attachments or sel["with_attachments"],
                     include_headers=sel["include_headers"], keep=sel["keep"],
                     scan_needs_body=sel["scan_needs_body"], max_fetch=budget,
                 )
@@ -487,7 +496,7 @@ def _bulk_select(client, sel: dict, folder: str | None, all_folders: bool,
             continue
         recs, stats = client.search(
             sel["criteria"], folder=f, limit=cap, with_body=sel["with_body"],
-            with_attachments=False, include_headers=sel["include_headers"],
+            with_attachments=sel["with_attachments"], include_headers=sel["include_headers"],
             keep=sel["keep"], scan_needs_body=sel["scan_needs_body"], max_fetch=budget,
         )
         _merge_stats(agg, stats)
