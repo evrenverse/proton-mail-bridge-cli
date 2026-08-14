@@ -28,6 +28,11 @@
 - `message delete --log FILE` / `bulk-delete --log FILE`: one JSON line per message (`ts`,
   `action`, `account`, `folder`, `uid`, `date`, `from`, `subject`), written before the delete.
   Without it the only record of a permanently deleted message is its absence.
+- `message search --attachment-name S` matches a case-insensitive substring of an attachment
+  filename. `--text` reads bodies only, so a document forwarded as a bare attachment was
+  invisible to every other criterion; PDF *contents* remain out of reach.
+- `--max-fetch` holds exactly: the budget used to be checked only between fetch rounds, so
+  `--max-fetch 50` scanned 200. The last round now takes only what the budget has room for.
 - Message summaries gained `list_unsubscribe` (RFC 2369 targets split into `http`/`mailto`, plus
   the RFC 8058 `one_click` flag) and `from_name`. `message search --list-unsubscribe` filters on
   it — a selection criterion, never an automatic delete recommendation: project and portal
