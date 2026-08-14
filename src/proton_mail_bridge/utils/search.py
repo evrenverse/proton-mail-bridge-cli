@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+from collections.abc import Callable
 
 
 def _date(value: str | None):
@@ -48,17 +49,27 @@ def is_non_ascii(*values: str | None) -> bool:
     return any(v and any(ord(ch) > 127 for ch in v) for v in values)
 
 
-def client_filter(
-    records: list[dict], *, text=None, from_=None, to=None, cc=None, subject=None,
+def predicate(
+    *, text=None, from_=None, to=None, cc=None, subject=None,
     headers: list[tuple[str, str]] | None = None,
-) -> list[dict]:
+    has_attachments: bool = False,
+) -> Callable[[dict], bool] | None:
     """Client-side filter for everything Gluon handles unreliably server-side:
-    body/text, non-ASCII values, and header matches (case-insensitive substring).
+    body/text, non-ASCII values, header matches (case-insensitive substring) and
+    attachments.
+
+    Returns None when nothing needs filtering client-side — that is the caller's signal
+    that `--limit` alone already describes the result exactly.
 
     headers: (key, value) pairs from --header; requires records with a "headers" field
     (search() with include_headers=True).
     """
+    if not any([text, headers, has_attachments, is_non_ascii(from_, to, cc, subject)]):
+        return None
+
     def matches(r: dict) -> bool:
+        if has_attachments and not r.get("has_attachments"):
+            return False
         if text:
             n = text.lower()
             hay = " ".join([
@@ -92,4 +103,4 @@ def client_filter(
                     return False
         return True
 
-    return [r for r in records if matches(r)]
+    return matches

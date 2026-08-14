@@ -18,12 +18,22 @@ def test_is_non_ascii():
     assert search.is_non_ascii(None) is False
 
 
-def test_client_filter_non_ascii_subject():
+def test_predicate_non_ascii_subject():
     recs = [{"subject": "Invoice Müller GmbH", "body_text": ""},
             {"subject": "Invoice Smith", "body_text": ""}]
-    out = search.client_filter(recs, subject="müller")
+    out = [r for r in recs if search.predicate(subject="müller")(r)]
     assert len(out) == 1
     assert out[0]["subject"] == "Invoice Müller GmbH"
+
+
+def test_predicate_is_none_when_the_server_decides_alone():
+    """None is the signal that --limit already describes the result exactly — no scan needed."""
+    assert search.predicate(subject="Invoice", from_="a@example.com") is None
+    assert search.predicate() is None
+    assert search.predicate(text="invoice") is not None
+    assert search.predicate(has_attachments=True) is not None
+    assert search.predicate(headers=[("x-mailer", "thunderbird")]) is not None
+    assert search.predicate(subject="Müller") is not None  # non-ASCII → client-side
 
 
 def test_build_criteria_larger_smaller():
@@ -38,18 +48,23 @@ def test_build_criteria_larger_only():
     assert "size_lt" not in crit
 
 
-def test_client_filter_headers_match():
+def test_predicate_headers_match():
     recs = [
         {"subject": "A", "headers": {"x-mailer": ["Thunderbird 91"]}},
         {"subject": "B", "headers": {"x-mailer": ["Apple Mail"]}},
         {"subject": "C", "headers": {}},
     ]
-    out = search.client_filter(recs, headers=[("x-mailer", "thunderbird")])
+    keep = search.predicate(headers=[("x-mailer", "thunderbird")])
+    out = [r for r in recs if keep(r)]
     assert len(out) == 1
     assert out[0]["subject"] == "A"
 
 
-def test_client_filter_headers_no_match():
-    recs = [{"subject": "X", "headers": {"x-spam": ["no"]}}]
-    out = search.client_filter(recs, headers=[("x-mailer", "outlook")])
-    assert out == []
+def test_predicate_headers_no_match():
+    keep = search.predicate(headers=[("x-mailer", "outlook")])
+    assert keep({"subject": "X", "headers": {"x-spam": ["no"]}}) is False
+
+
+def test_predicate_attachments():
+    assert search.predicate(has_attachments=True)({"has_attachments": False}) is False
+    assert search.predicate(has_attachments=True)({"has_attachments": True}) is True

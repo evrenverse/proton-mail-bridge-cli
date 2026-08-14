@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from proton_mail_bridge.core.config import Account, Endpoint
+
+FETCH_BATCH = 200
+"""Messages per FETCH round while scanning. Keeps memory flat and lets a client-side
+filter stop early instead of pulling a whole folder in one command."""
 
 
 def _iso(dt: Any) -> str | None:
@@ -108,22 +112,105 @@ class ImapClient:
 
         return AND(**criteria) if criteria else "ALL"
 
+    def _uid_list(self, criteria: dict, folder: str) -> list[str]:
+        """The server-side match set as a stable snapshot, newest first.
+
+        UID order is arrival order; taking the list once (instead of re-running SEARCH per
+        page) keeps paging stable while mail keeps coming in.
+        """
+        self._mb.folder.set(folder)
+        return list(reversed(self._mb.uids(self._criteria(criteria))))
+
+    def _record(self, msg: Any, folder: str, *, with_body: bool, with_attachments: bool,
+                include_headers: bool) -> dict:
+        if with_body or include_headers:
+            fmt = "both" if with_body else "none"
+            return full_message(msg, self._email, folder, fmt, include_headers=include_headers)
+        rec = summarize(msg, self._email, folder)
+        if with_attachments:
+            rec["attachments"] = [attachment_meta(a) for a in (msg.attachments or [])]
+        return rec
+
+    def _materialize(self, uids: list[str], folder: str, *, with_body: bool = False,
+                     with_attachments: bool = False, include_headers: bool = False,
+                     headers_only: bool = False) -> Iterator[dict]:
+        """Records for an explicit UID list, newest first, in FETCH_BATCH-sized rounds.
+
+        `headers_only` fetches BODY.PEEK[HEADER]: no body transfer, no `\\Seen` side effect —
+        enough for header/date/subject filters, not for body text or attachments.
+        """
+        from imap_tools import AND
+
+        self._mb.folder.set(folder)
+        for start in range(0, len(uids), FETCH_BATCH):
+            chunk = uids[start:start + FETCH_BATCH]
+            msgs = self._mb.fetch(AND(uid=",".join(chunk)), mark_seen=False, bulk=True,
+                                  reverse=True, headers_only=headers_only)
+            for m in msgs:
+                yield self._record(m, folder, with_body=with_body,
+                                   with_attachments=with_attachments,
+                                   include_headers=include_headers)
+
     def search(self, criteria: dict, folder: str, limit: int | None,
                with_body: bool, with_attachments: bool,
-               include_headers: bool = False) -> list[dict]:
-        self._mb.folder.set(folder)
-        msgs = self._mb.fetch(self._criteria(criteria), limit=limit, mark_seen=False, bulk=True,
-                              reverse=True)  # newest first; limit applies after reversing
-        out: list[dict] = []
-        for m in msgs:
-            if with_body or include_headers:
-                rec = full_message(m, self._email, folder, "both", include_headers=include_headers)
-            else:
-                rec = summarize(m, self._email, folder)
-                if with_attachments:
-                    rec["attachments"] = [attachment_meta(a) for a in (m.attachments or [])]
-            out.append(rec)
-        return out
+               include_headers: bool = False,
+               keep: Callable[[dict], bool] | None = None,
+               scan_needs_body: bool = False,
+               max_fetch: int | None = None) -> tuple[list[dict], dict]:
+        """Search a folder, newest first. Returns (records, stats).
+
+        `keep` is the client-side predicate for everything the server cannot decide (body
+        text, non-ASCII, headers, attachments). It runs *while* paging, so `limit` bounds the
+        MATCHES, not the messages fetched — a filtered search keeps reading until it has
+        enough hits or the folder is exhausted.
+
+        `max_fetch` caps the scan; an exhausted budget (or a `limit` reached with candidates
+        left over) shows up as `truncated` in the stats. Nothing is ever cut silently.
+        """
+        uids = self._uid_list(criteria, folder)
+        stats: dict[str, Any] = {"candidates": len(uids), "scanned": 0, "truncated": False}
+        opts = {"with_body": with_body, "with_attachments": with_attachments,
+                "include_headers": include_headers}
+
+        if keep is None:
+            # nothing to filter client-side: the server already decided, the window is exact
+            window = uids[:limit] if limit else uids
+            recs = list(self._materialize(window, folder, **opts))
+            stats["scanned"] = len(recs)
+            if len(window) < len(uids):
+                stats.update(truncated=True, reason="limit")
+            return recs, stats
+
+        # header-only scan whenever the predicate does not need body or attachments:
+        # scanning 30k headers is a different order of cost than scanning 30k bodies
+        headers_only = not scan_needs_body
+        scan_opts = ({"with_body": False, "with_attachments": False, "include_headers": True,
+                      "headers_only": True} if headers_only else opts)
+        matched: list[dict] = []
+        reason = ""
+        pos = 0
+        while pos < len(uids):
+            if limit is not None and len(matched) >= limit:
+                reason = "limit"
+                break
+            if max_fetch and stats["scanned"] >= max_fetch:
+                reason = "fetch_budget"
+                break
+            chunk = uids[pos:pos + FETCH_BATCH]
+            pos += len(chunk)
+            for rec in self._materialize(chunk, folder, **scan_opts):
+                stats["scanned"] += 1
+                if keep(rec):
+                    matched.append(rec)
+        if limit is not None and len(matched) > limit:
+            matched = matched[:limit]
+            reason = reason or "limit"
+        if reason:
+            stats.update(truncated=True, reason=reason)
+        if headers_only:  # the survivors get fetched properly (body, attachments, size)
+            matched = list(self._materialize([r["uid"] for r in matched], folder,
+                                             **opts))
+        return matched, stats
 
     def count(self, criteria: dict, folder: str) -> int:
         """Server-side count via UID SEARCH — no message fetch."""
@@ -242,11 +329,18 @@ SPECIAL_USE = {
 
 
 def for_accounts(accounts: list[Account], fn: Callable[[Account], Any]) -> list[dict]:
-    """Runs fn per account; fault-tolerant, tags every result with 'account'."""
+    """Runs fn per account; fault-tolerant, tags every result with 'account'.
+
+    `fn` may return `(items, extra)`; `extra` is merged next to `items` (search stats etc.).
+    """
     results: list[dict] = []
     for account in accounts:
         try:
-            results.append({"account": account.email, "ok": True, "items": fn(account)})
+            items = fn(account)
+            extra: dict = {}
+            if isinstance(items, tuple):
+                items, extra = items
+            results.append({"account": account.email, "ok": True, **extra, "items": items})
         except Exception as exc:  # one broken account must not kill the whole run
             results.append({
                 "account": account.email, "ok": False,

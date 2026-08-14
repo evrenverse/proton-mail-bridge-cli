@@ -6,8 +6,10 @@ from tests.conftest import FakeMailBox
 
 def test_search_returns_summaries():
     client = ImapClient(FakeMailBox(), account_email="me@p.me")
-    res = client.search({}, folder="INBOX", limit=None, with_body=False, with_attachments=False)
+    res, stats = client.search({}, folder="INBOX", limit=None, with_body=False,
+                               with_attachments=False)
     assert len(res) == 1
+    assert stats == {"candidates": 1, "scanned": 1, "truncated": False}
     s = res[0]
     assert s["account"] == "me@p.me"
     assert s["uid"] == "1"
@@ -25,14 +27,34 @@ def test_search_newest_first_with_limit():
     old = FakeMessage(uid="1", date=datetime(2026, 1, 1, tzinfo=UTC))
     new = FakeMessage(uid="2", date=datetime(2026, 1, 5, tzinfo=UTC))
     client = ImapClient(FakeMailBox({"INBOX": [old, new]}), account_email="me@p.me")
-    res = client.search({}, folder="INBOX", limit=1, with_body=False, with_attachments=False)
-    assert [r["uid"] for r in res] == ["2"]  # newest first, limit applies after reversing
+    res, stats = client.search({}, folder="INBOX", limit=1, with_body=False,
+                               with_attachments=False)
+    assert [r["uid"] for r in res] == ["2"]  # newest first
+    assert stats["truncated"] is True and stats["reason"] == "limit"  # one candidate left over
 
 
 def test_search_with_body_includes_text():
     client = ImapClient(FakeMailBox(), account_email="me@p.me")
-    res = client.search({}, folder="INBOX", limit=None, with_body=True, with_attachments=False)
+    res, _ = client.search({}, folder="INBOX", limit=None, with_body=True,
+                           with_attachments=False)
     assert res[0]["body_text"] == "We order 3 containers."
+
+
+def test_uid_survives_the_gluon_fetch_layout():
+    """Gluon puts the UID in the element *after* the literal, not before it:
+
+        (b'2 (FLAGS (\\Seen) BODY[HEADER] {2}', b'\\r\\n')
+        b' UID 3)'
+
+    Anything scanning only the leading part for `UID (\\d+)` loses every UID silently.
+    imap_tools reads both -- this pins it, because we depend on it.
+    """
+    from imap_tools.message import MailMessage
+
+    raw = b"From: sender@example.com\r\nSubject: Test\r\n\r\n"
+    msg = MailMessage([(b"2 (FLAGS (\\Seen) BODY[HEADER] {%d}" % len(raw), raw), b" UID 3)"])
+    assert msg.uid == "3"
+    assert msg.flags == ("\\Seen",)
 
 
 def test_list_folders():

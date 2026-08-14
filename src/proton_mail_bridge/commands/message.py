@@ -18,6 +18,77 @@ def _uids(value: str) -> list[str]:
     return [u.strip() for u in value.split(",") if u.strip()]
 
 
+def _cap(limit: int | None) -> int | None:
+    """`--limit 0` (and None) mean: no cap, return every match."""
+    return limit if limit else None
+
+
+# Selection criteria, defined once so every command that selects messages selects the same
+# way — and so the split between server-side and client-side stays in one place.
+SELECT_OPTS = [
+    click.option("--from", "from_", default=None),
+    click.option("--to", default=None),
+    click.option("--cc", default=None),
+    click.option("--subject", default=None),
+    click.option("--text", default=None, help="Body text; filtered client-side (fetches bodies)."),
+    click.option("--since", default=None),
+    click.option("--before", default=None),
+    click.option("--seen/--unseen", default=None),
+    click.option("--flagged", is_flag=True, default=False),
+    click.option("--larger", type=int, default=None, help="Only messages larger than N bytes."),
+    click.option("--smaller", type=int, default=None, help="Only messages smaller than N bytes."),
+    click.option("--header", "header_filters", multiple=True,
+                 help="Header filter, form Key:Value (repeatable). Filtered client-side."),
+    click.option("--has-attachments", "has_attachments", is_flag=True,
+                 help="Only messages with attachments (filtered client-side)."),
+]
+
+
+def select_options(fn):
+    for opt in reversed(SELECT_OPTS):
+        fn = opt(fn)
+    return fn
+
+
+def _selection(*, from_=None, to=None, cc=None, subject=None, text=None, since=None,
+               before=None, seen=None, flagged=False, larger=None, smaller=None,
+               header_filters=(), has_attachments=False) -> dict:
+    """Split the selection options into a server-side criteria dict and a client-side
+    predicate. `keep is None` means the server alone decides the result."""
+    parsed_headers: list[tuple[str, str]] = []
+    for hf in header_filters:
+        if ":" in hf:
+            k, _, v = hf.partition(":")
+            parsed_headers.append((k.strip(), v.strip()))
+
+    def _server(v):  # do NOT hand non-ASCII values to the server (Gluon unreliable) → client-side
+        return v if v and not search_mod.is_non_ascii(v) else None
+
+    return {
+        "criteria": search_mod.build_criteria(
+            from_=_server(from_), to=_server(to), cc=_server(cc), subject=_server(subject),
+            text=None, since=since, before=before, seen=seen, flagged=flagged,
+            larger=larger, smaller=smaller,
+        ),
+        "keep": search_mod.predicate(
+            text=text, from_=from_, to=to, cc=cc, subject=subject,
+            headers=parsed_headers or None, has_attachments=has_attachments,
+        ),
+        # body text and attachments cannot be judged from headers → the scan must fetch fully
+        "scan_needs_body": bool(text) or has_attachments,
+        "with_body": bool(text),
+        "include_headers": bool(parsed_headers),
+    }
+
+
+def _merge_stats(agg: dict, stats: dict) -> None:
+    agg["candidates"] += stats["candidates"]
+    agg["scanned"] += stats["scanned"]
+    if stats["truncated"]:
+        agg["truncated"] = True
+        agg["reason"] = stats.get("reason", "")
+
+
 @message_group.command("list")
 @click.option("--folder", default="INBOX")
 @click.option("--limit", type=int, default=50)
@@ -34,7 +105,7 @@ def list_cmd(ctx, folder, limit, offset, unread, since) -> None:
 
     def fn(account):
         with ImapClient.connect(cfg.endpoint, account) as c:
-            recs = c.search(
+            recs, _ = c.search(
                 crit, folder=folder, limit=offset + limit, with_body=False, with_attachments=False
             )
             return recs[offset:offset + limit]
@@ -43,80 +114,51 @@ def list_cmd(ctx, folder, limit, offset, unread, since) -> None:
 
 
 @message_group.command("search")
-@click.option("--from", "from_", default=None)
-@click.option("--to", default=None)
-@click.option("--cc", default=None)
-@click.option("--subject", default=None)
-@click.option("--text", default=None)
-@click.option("--since", default=None)
-@click.option("--before", default=None)
-@click.option("--seen/--unseen", default=None)
-@click.option("--flagged", is_flag=True, default=False)
-@click.option("--larger", type=int, default=None, help="Only messages larger than N bytes.")
-@click.option("--smaller", type=int, default=None, help="Only messages smaller than N bytes.")
-@click.option("--header", "header_filters", multiple=True,
-              help="Header filter, form Key:Value (repeatable). Filtered client-side.")
+@select_options
 @click.option("--folder", default=None, help="Folder; without it: All Mail (everything).")
 @click.option("--all-folders", "all_folders", is_flag=True,
               help="Iterate over all folders (dedup).")
-@click.option("--has-attachments", "has_attachments", is_flag=True,
-              help="Only messages with attachments (filtered client-side).")
 @click.option("--with-body", is_flag=True)
 @click.option("--with-attachments", is_flag=True)
 @click.option("--ids-only", "ids_only", is_flag=True,
               help="Only account/folder/uid/message_id per hit (for follow-up ops).")
 @click.option("--count-only", "count_only", is_flag=True,
               help="Count only — server-side, no message fetch; ignores --limit.")
-@click.option("--limit", type=int, default=50)
+@click.option("--limit", type=int, default=50,
+              help="Maximum number of MATCHES (0 = all). Client-side filters keep reading "
+                   "until this many hits are found or the scope is exhausted.")
+@click.option("--max-fetch", "max_fetch", type=int, default=0,
+              help="Stop the client-side scan after N fetched messages (0 = no budget). "
+                   "An exhausted budget is reported as truncated/reason in the result.")
 @click.pass_context
-def search_cmd(ctx, from_, to, cc, subject, text, since, before, seen, flagged,
-               larger, smaller, header_filters,
-               folder, all_folders, has_attachments, with_body, with_attachments,
-               ids_only, count_only, limit) -> None:
+def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
+               ids_only, count_only, limit, max_fetch, **selection) -> None:
     """Bulk search, newest first. Default scope: All Mail. Body/text & non-ASCII client-side."""
     from proton_mail_bridge.core.imap import dedup_by_message_id
 
     cfg = cfgmod.resolve_config()
     accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="read")
-
-    # parse --header Key:Value pairs
-    parsed_headers: list[tuple[str, str]] | None = None
-    if header_filters:
-        parsed_headers = []
-        for hf in header_filters:
-            if ":" in hf:
-                k, _, v = hf.partition(":")
-                parsed_headers.append((k.strip(), v.strip()))
-
-    def _server(v):  # do NOT hand non-ASCII values to the server (Gluon unreliable) → client-side
-        return v if v and not search_mod.is_non_ascii(v) else None
-
-    crit = search_mod.build_criteria(
-        from_=_server(from_), to=_server(to), cc=_server(cc), subject=_server(subject),
-        text=None, since=since, before=before, seen=seen, flagged=flagged,
-        larger=larger, smaller=smaller,
-    )
-    need_body = with_body or bool(text)
-    # with --header, headers are filtered client-side; that requires include_headers=True
-    need_headers = bool(parsed_headers)
+    sel = _selection(**selection)
+    cap = _cap(limit)
+    budget = _cap(max_fetch)
 
     if count_only:
-        # ponytail: counts server-side only (UID SEARCH); with client-side filters the count
-        # would only be honest after a full fetch → search without --count-only instead
+        # ponytail: counts server-side only (UID SEARCH); a client-side filter would only be
+        # honest after a full scan → run the search itself instead of counting a window
         if ids_only:
             out_mod.out_err("usage", "Not combinable", "--count-only excludes --ids-only")
-        if text or parsed_headers or has_attachments or all_folders \
-                or search_mod.is_non_ascii(from_, to, cc, subject):
+        if sel["keep"] is not None or all_folders:
             out_mod.out_err(
                 "usage", "--count-only counts server-side",
                 "not combinable with --text/--header/--has-attachments/--all-folders "
-                "or non-ASCII values",
+                "or non-ASCII values — those are decided client-side, and "
+                "counting them means fetching them: run the search without --count-only",
             )
 
         def fn_count(account):
             with ImapClient.connect(cfg.endpoint, account) as c:
                 f = c.resolve_folder(folder, "all")
-                return {"folder": f, "count": c.count(crit, f)}
+                return {"folder": f, "count": c.count(sel["criteria"], f)}
 
         out_mod.out(for_accounts(accounts, fn_count))
         return
@@ -125,21 +167,24 @@ def search_cmd(ctx, from_, to, cc, subject, text, since, before, seen, flagged,
         with ImapClient.connect(cfg.endpoint, account) as c:
             folders = c.list_folders() if all_folders else [c.resolve_folder(folder, "all")]
             recs: list[dict] = []
+            agg: dict = {"candidates": 0, "scanned": 0, "truncated": False}
             for f in folders:
-                recs.extend(c.search(crit, folder=f, limit=limit,
-                                     with_body=need_body, with_attachments=with_attachments,
-                                     include_headers=need_headers))
-            recs = search_mod.client_filter(
-                recs, text=text, from_=from_, to=to, cc=cc, subject=subject,
-                headers=parsed_headers,
-            )
-            if has_attachments:
-                recs = [r for r in recs if r["has_attachments"]]
-            recs = dedup_by_message_id(recs)[:limit]
+                found, stats = c.search(
+                    sel["criteria"], folder=f, limit=cap,
+                    with_body=with_body or sel["with_body"], with_attachments=with_attachments,
+                    include_headers=sel["include_headers"], keep=sel["keep"],
+                    scan_needs_body=sel["scan_needs_body"], max_fetch=budget,
+                )
+                recs.extend(found)
+                _merge_stats(agg, stats)
+            recs = dedup_by_message_id(recs)
+            if cap and len(recs) > cap:
+                recs = recs[:cap]
+                agg.update(truncated=True, reason="limit")
             if ids_only:
                 recs = [{"account": r["account"], "folder": r["folder"], "uid": r["uid"],
                          "message_id": r["message_id"]} for r in recs]
-            return recs
+            return recs, {"search": {**agg, "limit": cap, "folders": len(folders)}}
 
     out_mod.out(for_accounts(accounts, fn))
 
