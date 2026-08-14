@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime as _dt
 from collections.abc import Callable
 
+from proton_mail_bridge.utils import pdftext
+
 
 def _date(value: str | None):
     if not value:
@@ -52,7 +54,8 @@ def is_non_ascii(*values: str | None) -> bool:
 def predicate(
     *, text=None, from_=None, to=None, cc=None, subject=None,
     headers: list[tuple[str, str]] | None = None,
-    has_attachments: bool = False, attachment_name=None, list_unsubscribe: bool = False,
+    has_attachments: bool = False, attachment_name=None, attachment_text=None,
+    list_unsubscribe: bool = False,
 ) -> Callable[[dict], bool] | None:
     """Client-side filter for everything Gluon handles unreliably server-side:
     body/text, non-ASCII values, header matches (case-insensitive substring), attachments
@@ -66,9 +69,12 @@ def predicate(
 
     attachment_name: case-insensitive substring of an attachment filename; requires records
     with an "attachments" field (search() with with_attachments=True).
+
+    attachment_text: case-insensitive substring of the text inside a PDF attachment;
+    requires search(with_attachment_text=True), which fetches and parses every PDF.
     """
-    if not any([text, headers, has_attachments, attachment_name, list_unsubscribe,
-                is_non_ascii(from_, to, cc, subject)]):
+    if not any([text, headers, has_attachments, attachment_name, attachment_text,
+                list_unsubscribe, is_non_ascii(from_, to, cc, subject)]):
         return None
 
     def matches(r: dict) -> bool:
@@ -79,6 +85,10 @@ def predicate(
             names = [str(a.get("filename", "")) for a in (r.get("attachments") or [])]
             if not any(n in name.lower() for name in names):
                 return False
+        if attachment_text and attachment_text.lower() not in (
+            r.get(pdftext.FIELD, "") or ""
+        ).lower():
+            return False
         if list_unsubscribe and not r.get("list_unsubscribe"):
             return False
         if text:

@@ -6,6 +6,7 @@ from typing import Any
 
 from proton_mail_bridge.core.config import Account, Endpoint
 from proton_mail_bridge.core.errors import BridgeError
+from proton_mail_bridge.utils.pdftext import FIELD as ATTACHMENT_TEXT
 
 FETCH_BATCH = 200
 """Messages per FETCH round while scanning. Keeps memory flat and lets a client-side
@@ -163,17 +164,25 @@ class ImapClient:
         return min(FETCH_BATCH, max_fetch - stats["scanned"])
 
     def _record(self, msg: Any, folder: str, *, with_body: bool, with_attachments: bool,
-                include_headers: bool) -> dict:
+                include_headers: bool, with_attachment_text: bool = False) -> dict:
         if with_body or include_headers:
             fmt = "both" if with_body else "none"
-            return full_message(msg, self._email, folder, fmt, include_headers=include_headers)
-        rec = summarize(msg, self._email, folder)
-        if with_attachments:
-            rec["attachments"] = [attachment_meta(a) for a in (msg.attachments or [])]
+            rec = full_message(msg, self._email, folder, fmt, include_headers=include_headers)
+        else:
+            rec = summarize(msg, self._email, folder)
+            if with_attachments:
+                rec["attachments"] = [attachment_meta(a) for a in (msg.attachments or [])]
+        if with_attachment_text:
+            from proton_mail_bridge.utils import pdftext
+
+            rec[ATTACHMENT_TEXT] = "\n".join(
+                pdftext.extract(a.payload or b"") for a in (msg.attachments or [])
+            )
         return rec
 
     def _materialize(self, uids: list[str], folder: str, *, with_body: bool = False,
                      with_attachments: bool = False, include_headers: bool = False,
+                     with_attachment_text: bool = False,
                      headers_only: bool = False) -> Iterator[dict]:
         """Records for an explicit UID list, newest first, in FETCH_BATCH-sized rounds.
 
@@ -190,13 +199,15 @@ class ImapClient:
             for m in msgs:
                 yield self._record(m, folder, with_body=with_body,
                                    with_attachments=with_attachments,
-                                   include_headers=include_headers)
+                                   include_headers=include_headers,
+                                   with_attachment_text=with_attachment_text)
 
     def search(self, criteria: dict, folder: str, limit: int | None,
                with_body: bool, with_attachments: bool,
                include_headers: bool = False,
                keep: Callable[[dict], bool] | None = None,
                scan_needs_body: bool = False,
+               with_attachment_text: bool = False,
                max_fetch: int | None = None) -> tuple[list[dict], dict]:
         """Search a folder, newest first. Returns (records, stats).
 
@@ -211,7 +222,8 @@ class ImapClient:
         uids = self._uid_list(criteria, folder)
         stats: dict[str, Any] = {"candidates": len(uids), "scanned": 0, "truncated": False}
         opts = {"with_body": with_body, "with_attachments": with_attachments,
-                "include_headers": include_headers}
+                "include_headers": include_headers,
+                "with_attachment_text": with_attachment_text}
 
         if keep is None:
             # nothing to filter client-side: the server already decided, the window is exact
@@ -226,7 +238,8 @@ class ImapClient:
         # scanning 30k headers is a different order of cost than scanning 30k bodies
         headers_only = not scan_needs_body
         scan_opts = ({"with_body": False, "with_attachments": False, "include_headers": True,
-                      "headers_only": True} if headers_only else opts)
+                      "with_attachment_text": False, "headers_only": True}
+                     if headers_only else opts)
         matched: list[dict] = []
         reason = ""
         pos = 0
@@ -251,6 +264,8 @@ class ImapClient:
         if headers_only:  # the survivors get fetched properly (body, attachments, size)
             matched = list(self._materialize([r["uid"] for r in matched], folder,
                                              **opts))
+        for rec in matched:  # scratch space for the predicate, never part of the result
+            rec.pop(ATTACHMENT_TEXT, None)
         return matched, stats
 
     def count(self, criteria: dict, folder: str) -> int:

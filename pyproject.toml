@@ -10,6 +10,7 @@ authors = [{ name = "evrenverse" }]
 dependencies = [
     "click>=8.1",
     "imap-tools>=1.7",
+    "pypdf>=5.0",
     "rich>=13.7",
     "click-repl>=0.3",
     "tomli-w>=1.0",
