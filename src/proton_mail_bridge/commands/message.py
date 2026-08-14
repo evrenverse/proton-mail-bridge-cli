@@ -194,6 +194,41 @@ def search_cmd(ctx, folder, all_folders, with_body, with_attachments,
     out_mod.out(for_accounts(accounts, fn))
 
 
+@message_group.command("senders")
+@click.option("--folder", default=None, help="Folder; without it: All Mail (everything).")
+@click.option("--since", default=None)
+@click.option("--before", default=None)
+@click.option("--seen/--unseen", default=None)
+@click.option("--min-count", "min_count", type=int, default=1,
+              help="Only senders with at least N messages.")
+@click.option("--limit", type=int, default=100, help="Top N senders by count (0 = all).")
+@click.option("--max-fetch", "max_fetch", type=int, default=0,
+              help="Stop after N scanned messages (0 = no budget); reported as truncated.")
+@click.pass_context
+def senders_cmd(ctx, folder, since, before, seen, min_count, limit, max_fetch) -> None:
+    """Who sends the most: count, last date and last subject per From address.
+
+    Headers only — no body fetch. `list_unsubscribe` marks senders that offer an unsubscribe
+    header; that is a bulk-sender hint, not a reason to delete.
+    """
+    cfg = cfgmod.resolve_config()
+    accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="read")
+    crit = search_mod.build_criteria(since=since, before=before, seen=seen)
+    cap = _cap(limit)
+
+    def fn(account):
+        with ImapClient.connect(cfg.endpoint, account) as c:
+            f = c.resolve_folder(folder, "all")
+            rows, stats = c.sender_stats(crit, folder=f, max_fetch=_cap(max_fetch))
+            rows.sort(key=lambda r: (-r["count"], r["from"]))
+            kept = [r for r in rows if r["count"] >= min_count]
+            shown = kept[:cap] if cap else kept
+            return shown, {"senders": {**stats, "folder": f, "senders_total": len(kept),
+                                       "limit": cap}}
+
+    out_mod.out(for_accounts(accounts, fn))
+
+
 @message_group.command("read")
 @click.option("--uid", required=True)
 @click.option("--folder", default="INBOX")

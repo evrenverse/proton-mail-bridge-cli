@@ -250,6 +250,41 @@ class ImapClient:
         self._mb.folder.set(folder)
         return len(self._mb.uids(self._criteria(criteria)))
 
+    def sender_stats(self, criteria: dict, folder: str,
+                     max_fetch: int | None = None) -> tuple[list[dict], dict]:
+        """Count per From address over the whole scope — headers only, no body fetch.
+
+        Aggregating in the CLI breaks the raw-data principle on purpose: the alternative is
+        shipping 30k records to the caller just to group them.
+        """
+        uids = self._uid_list(criteria, folder)
+        stats: dict[str, Any] = {"candidates": len(uids), "scanned": 0, "truncated": False}
+        agg: dict[str, dict] = {}
+        pos = 0
+        while pos < len(uids):
+            if max_fetch and stats["scanned"] >= max_fetch:
+                stats.update(truncated=True, reason="fetch_budget")
+                break
+            chunk = uids[pos:pos + FETCH_BATCH]
+            pos += len(chunk)
+            for rec in self._materialize(chunk, folder, headers_only=True):
+                stats["scanned"] += 1
+                key = (rec["from"] or "").lower()
+                entry = agg.get(key)
+                if entry is None:  # newest first → the first hit is the most recent mail
+                    agg[key] = {
+                        "from": rec["from"], "name": rec["from_name"], "count": 1,
+                        "last_date": rec["date"], "last_subject": rec["subject"],
+                        "list_unsubscribe": bool(rec["list_unsubscribe"]),
+                    }
+                    continue
+                entry["count"] += 1
+                entry["name"] = entry["name"] or rec["from_name"]
+                entry["list_unsubscribe"] = entry["list_unsubscribe"] or bool(
+                    rec["list_unsubscribe"]
+                )
+        return list(agg.values()), stats
+
     def sender_addresses(self, folder: str, limit: int | None) -> list[tuple[str, str]]:
         """(display name, From address) per message — headers only, no body fetch."""
         self._mb.folder.set(folder)
