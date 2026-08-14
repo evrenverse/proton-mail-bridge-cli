@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator
+from datetime import datetime
 from typing import Any
 
 from proton_mail_bridge.core.config import Account, Endpoint
@@ -18,6 +19,19 @@ def _iso(dt: Any) -> str | None:
         return dt.isoformat()
     except AttributeError:
         return None
+
+
+def _is_newer(a: str | None, b: str | None) -> bool:
+    """True when timestamp `a` is later than `b`. ISO strings carry their offset, so
+    comparing them as text puts a +02:00 mail after an earlier one from UTC."""
+    if not a:
+        return False
+    if not b:
+        return True
+    try:
+        return datetime.fromisoformat(a) > datetime.fromisoformat(b)
+    except (ValueError, TypeError):  # mixed naive/aware or an exotic header
+        return a > b
 
 
 def _header(headers: dict, name: str) -> str:
@@ -155,6 +169,27 @@ class ImapClient:
         self._mb.folder.set(folder)
         return list(reversed(self._mb.uids(self._criteria(criteria))))
 
+    def _scan(self, uids: list[str], folder: str, stats: dict, *, max_fetch: int | None,
+              enough: Callable[[], bool] | None = None, **fetch_opts: Any) -> Iterator[dict]:
+        """Fetch a UID list in rounds, counting into `stats`.
+
+        Stops when `enough()` says the caller has what it needs or the budget is spent, and
+        records which of the two in `reason` — the single place where a scan may end early.
+        """
+        pos = 0
+        while pos < len(uids):
+            if enough is not None and enough():
+                stats.update(truncated=True, reason="limit")
+                return
+            if max_fetch and stats["scanned"] >= max_fetch:
+                stats.update(truncated=True, reason="fetch_budget")
+                return
+            chunk = uids[pos:pos + self._room(max_fetch, stats)]
+            pos += len(chunk)
+            for rec in self._materialize(chunk, folder, **fetch_opts):
+                stats["scanned"] += 1
+                yield rec
+
     @staticmethod
     def _room(max_fetch: int | None, stats: dict) -> int:
         """Messages the next round may fetch. Without this the budget is rounded up to the
@@ -208,6 +243,7 @@ class ImapClient:
                keep: Callable[[dict], bool] | None = None,
                scan_needs_body: bool = False,
                with_attachment_text: bool = False,
+               materialize: bool = True,
                max_fetch: int | None = None) -> tuple[list[dict], dict]:
         """Search a folder, newest first. Returns (records, stats).
 
@@ -218,6 +254,10 @@ class ImapClient:
 
         `max_fetch` caps the scan; an exhausted budget (or a `limit` reached with candidates
         left over) shows up as `truncated` in the stats. Nothing is ever cut silently.
+
+        `materialize=False` skips the second fetch that completes the hits — for counting,
+        where only `len()` is used. The records are then scan records (empty body, no
+        attachments) and must not be printed.
         """
         uids = self._uid_list(criteria, folder)
         stats: dict[str, Any] = {"candidates": len(uids), "scanned": 0, "truncated": False}
@@ -241,27 +281,15 @@ class ImapClient:
                       "with_attachment_text": False, "headers_only": True}
                      if headers_only else opts)
         matched: list[dict] = []
-        reason = ""
-        pos = 0
-        while pos < len(uids):
-            if limit is not None and len(matched) >= limit:
-                reason = "limit"
-                break
-            if max_fetch and stats["scanned"] >= max_fetch:
-                reason = "fetch_budget"
-                break
-            chunk = uids[pos:pos + self._room(max_fetch, stats)]
-            pos += len(chunk)
-            for rec in self._materialize(chunk, folder, **scan_opts):
-                stats["scanned"] += 1
-                if keep(rec):
-                    matched.append(rec)
-        if limit is not None and len(matched) > limit:
+        for rec in self._scan(uids, folder, stats, max_fetch=max_fetch,
+                              enough=lambda: limit is not None and len(matched) >= limit,
+                              **scan_opts):
+            if keep(rec):
+                matched.append(rec)
+        if limit is not None and len(matched) > limit:  # the last round overshot
             matched = matched[:limit]
-            reason = reason or "limit"
-        if reason:
-            stats.update(truncated=True, reason=reason)
-        if headers_only:  # the survivors get fetched properly (body, attachments, size)
+            stats.update(truncated=True, reason="limit")
+        if headers_only and materialize:  # survivors get fetched properly (body, size, …)
             matched = list(self._materialize([r["uid"] for r in matched], folder,
                                              **opts))
         for rec in matched:  # scratch space for the predicate, never part of the result
@@ -273,40 +301,57 @@ class ImapClient:
         self._mb.folder.set(folder)
         return len(self._mb.uids(self._criteria(criteria)))
 
-    def sender_stats(self, criteria: dict, folder: str,
+    def sender_stats(self, criteria: dict, folders: list[str],
                      max_fetch: int | None = None) -> tuple[list[dict], dict]:
-        """Count per From address over the whole scope — headers only, no body fetch.
+        """Count per From address over one or more folders — headers only, no body fetch.
 
         Aggregating in the CLI breaks the raw-data principle on purpose: the alternative is
         shipping 30k records to the caller just to group them.
+
+        Across several folders the same mail appears more than once (INBOX + Labels/X + All
+        Mail share a Message-ID): it is counted once, and All Mail is skipped entirely,
+        because a sender "in All Mail" tells a cleanup nothing. Per sender, `folders` says
+        where the mails actually sit — which is what a folder-wise cleanup needs.
         """
-        uids = self._uid_list(criteria, folder)
-        stats: dict[str, Any] = {"candidates": len(uids), "scanned": 0, "truncated": False}
+        stats: dict[str, Any] = {"candidates": 0, "scanned": 0, "truncated": False,
+                                 "folders": [], "skipped_folders": []}
         agg: dict[str, dict] = {}
-        pos = 0
-        while pos < len(uids):
-            if max_fetch and stats["scanned"] >= max_fetch:
-                stats.update(truncated=True, reason="fetch_budget")
-                break
-            chunk = uids[pos:pos + self._room(max_fetch, stats)]
-            pos += len(chunk)
-            for rec in self._materialize(chunk, folder, headers_only=True):
-                stats["scanned"] += 1
-                key = (rec["from"] or "").lower()
-                entry = agg.get(key)
-                if entry is None:  # newest first → the first hit is the most recent mail
-                    agg[key] = {
-                        "from": rec["from"], "name": rec["from_name"], "count": 1,
-                        "last_date": rec["date"], "last_subject": rec["subject"],
-                        "list_unsubscribe": bool(rec["list_unsubscribe"]),
-                    }
+        seen: set[str] = set()
+        for folder in folders:
+            if len(folders) > 1 and self.is_all_mail(folder):
+                stats["skipped_folders"].append(folder)
+                continue
+            uids = self._uid_list(criteria, folder)
+            stats["candidates"] += len(uids)
+            stats["folders"].append(folder)
+            for rec in self._scan(uids, folder, stats, max_fetch=max_fetch,
+                                  headers_only=True):
+                key = rec["message_id"] or f"{folder}:{rec['uid']}"
+                if key in seen:
                     continue
-                entry["count"] += 1
-                entry["name"] = entry["name"] or rec["from_name"]
-                entry["list_unsubscribe"] = entry["list_unsubscribe"] or bool(
-                    rec["list_unsubscribe"]
-                )
+                seen.add(key)
+                self._add_sender(agg, rec, folder)
+            if stats["truncated"]:  # budget spent — the remaining folders stay unscanned
+                break
         return list(agg.values()), stats
+
+    @staticmethod
+    def _add_sender(agg: dict[str, dict], rec: dict, folder: str) -> None:
+        entry = agg.get((rec["from"] or "").lower())
+        if entry is None:
+            agg[(rec["from"] or "").lower()] = {
+                "from": rec["from"], "name": rec["from_name"], "count": 1,
+                "last_date": rec["date"], "last_subject": rec["subject"],
+                "list_unsubscribe": bool(rec["list_unsubscribe"]), "folders": {folder: 1},
+            }
+            return
+        entry["count"] += 1
+        entry["name"] = entry["name"] or rec["from_name"]
+        entry["list_unsubscribe"] = entry["list_unsubscribe"] or bool(rec["list_unsubscribe"])
+        entry["folders"][folder] = entry["folders"].get(folder, 0) + 1
+        # within a folder the scan runs newest first, but across folders it does not
+        if _is_newer(rec["date"], entry["last_date"]):
+            entry["last_date"], entry["last_subject"] = rec["date"], rec["subject"]
 
     def sender_addresses(self, folder: str, limit: int | None) -> list[tuple[str, str]]:
         """(display name, From address) per message — headers only, no body fetch."""
@@ -460,10 +505,13 @@ def for_accounts(accounts: list[Account], fn: Callable[[Account], Any]) -> list[
     return results
 
 
-def dedup_by_message_id(records: list[dict]) -> list[dict]:
+def dedup_by_message_id(records: list[dict], seen: set[str] | None = None) -> list[dict]:
     """Mandatory for multi-folder search: the same mail lives in INBOX + Labels/X + All Mail
-    (each with its own UID, same Message-ID). Fallback key if the Message-ID is empty."""
-    seen: set[str] = set()
+    (each with its own UID, same Message-ID). Fallback key if the Message-ID is empty.
+
+    Pass `seen` to deduplicate across calls — a folder loop has to know what the previous
+    folders already returned before it can size the next request."""
+    seen = set() if seen is None else seen
     out: list[dict] = []
     for r in records:
         key = r.get("message_id") or f"{r.get('account')}:{r.get('folder')}:{r.get('uid')}"

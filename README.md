@@ -12,6 +12,7 @@
 uv tool install git+https://github.com/evrenverse/proton-mail-bridge-cli
 pmb account add            # wizard: host/ports + email + bridge password, tests the login
 pmb --json message search --text "invoice" --since 2026-01-01 --with-body
+pmb --json message search --attachment-text 26593328 --since 2026-01-01   # inside the PDFs
 ```
 
 Proton Mail Bridge must be running. The **bridge password** (≠ your Proton password) is shown

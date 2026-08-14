@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **`message search` can look at attachments.** `--attachment-name` matches the filename,
+  `--attachment-text` the text inside a PDF. `--text` only ever read the mail body, so a
+  receipt forwarded as a bare attachment — no telling subject, nothing in the body — could
+  not be found at all, and a search that came back empty looked like an answer. Searching by
+  invoice number, amount or customer number now works, because those live in the document.
+  `--attachment-text` fetches and parses every PDF in scope (~10 messages/second): narrow it
+  with `--folder`/`--since` or cap it with `--max-fetch`. It reads the text layer only —
+  scanned documents are images and stay invisible, there is no OCR.
 - **Fix: `message search --limit` bounded the fetch, not the matches.** Client-side criteria
   (`--text`, `--header`, `--has-attachments`, non-ASCII values) ran *after* the limit had cut
   the fetch, so the same search returned 7 hits at `--limit 50`, 21 at `--limit 200` and 111
