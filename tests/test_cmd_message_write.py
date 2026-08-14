@@ -53,6 +53,48 @@ def test_delete_soft_moves_to_trash(monkeypatch):
     assert mb.deleted == []
 
 
+def _all_mail(monkeypatch):
+    """A mailbox whose All Mail carries the RFC 6154 \\All flag -- localized name included."""
+    from tests.conftest import FakeMessage
+    mb = FakeMailBox({"INBOX": [FakeMessage(uid="1")], "Alle Nachrichten": [FakeMessage(uid="9")]},
+                     {"Alle Nachrichten": ("\\All",)})
+    monkeypatch.setattr(cfgmod, "resolve_config",
+                        lambda *a, **k: Config(Endpoint(), [Account("a@p.me", "pw")], "a@p.me"))
+    monkeypatch.setattr(
+        ImapClient, "connect", classmethod(lambda cls, ep, acc, **k: ImapClient(mb, acc.email))
+    )
+    return mb
+
+
+def test_all_mail_writes_are_refused_with_a_reason(monkeypatch):
+    """All Mail is read-only over the Bridge and a duplicate view of every other folder --
+    the CLI says so instead of letting the server refuse it in its own words."""
+    import json
+
+    mb = _all_mail(monkeypatch)
+    for args in (
+        ["message", "move", "--uid", "9", "--folder", "Alle Nachrichten", "--to", "Trash", "--yes"],
+        ["message", "delete", "--uid", "9", "--folder", "Alle Nachrichten", "--yes"],
+        ["message", "flag", "--uid", "9", "--folder", "Alle Nachrichten", "--add", "\\Flagged"],
+        ["message", "mark", "--uid", "9", "--folder", "Alle Nachrichten", "--read"],
+        ["message", "move", "--uid", "1", "--to", "Alle Nachrichten", "--yes"],
+    ):
+        result = CliRunner().invoke(main, ["--json", *args])
+        assert result.exit_code != 0, args
+        error = json.loads(result.output)["error"]
+        assert error["type"] == "read_only"
+        assert "folder by folder" in error["detail"]
+    assert mb.moved == [] and mb.deleted == [] and mb.flagged == []
+
+
+def test_all_mail_stays_readable(monkeypatch):
+    _all_mail(monkeypatch)
+    result = CliRunner().invoke(
+        main, ["--json", "message", "search", "--folder", "Alle Nachrichten"]
+    )
+    assert result.exit_code == 0
+
+
 def test_copy_is_free(monkeypatch):
     mb = _patch(monkeypatch)
     result = CliRunner().invoke(main, ["message", "copy", "--uid", "1", "--to", "Archive"])

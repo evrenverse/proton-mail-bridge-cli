@@ -218,6 +218,7 @@ def read_cmd(ctx, uid, folder, fmt, include_headers, mark_read) -> None:
             else:
                 result = c.fetch(uids, folder=folder, fmt=fmt, include_headers=include_headers)
             if mark_read:
+                c.ensure_writable(folder, "message read --mark-read")
                 c.set_flags(uids, folder=folder, add=["\\Seen"], remove=[])
             return result
 
@@ -290,12 +291,13 @@ def move_cmd(ctx, uid, dest, folder, assume_yes, dry_run) -> None:
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     risk = guard.escalate(guard.CONFIRM, count=len(uids))
-    if dry_run:
-        with ImapClient.connect(cfg.endpoint, account) as c:
-            _plan(c, "message move", account, uids, folder, risk, to=dest)
-        return
-    guard.enforce(f"message move {uids} → {dest}", risk, assume_yes=assume_yes)
     with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(folder, "message move")
+        c.ensure_writable(dest, "message move --to")
+        if dry_run:
+            _plan(c, "message move", account, uids, folder, risk, to=dest)
+            return
+        guard.enforce(f"message move {uids} → {dest}", risk, assume_yes=assume_yes)
         c.move(uids, folder=folder, dest=dest)
     out_mod.out_ok(f"{len(uids)} moved → {dest}")
 
@@ -313,6 +315,7 @@ def copy_cmd(ctx, uid, dest, folder, dry_run) -> None:
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(dest, "message copy --to")
         if dry_run:
             _plan(c, "message copy", account, uids, folder, guard.FREE, to=dest)
             return
@@ -335,13 +338,13 @@ def flag_cmd(ctx, uid, add, remove, folder, assume_yes, dry_run) -> None:
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     risk = guard.escalate(guard.CONFIRM if remove else guard.FREE, count=len(uids))
-    if dry_run:
-        with ImapClient.connect(cfg.endpoint, account) as c:
+    with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(folder, "message flag")
+        if dry_run:
             _plan(c, "message flag", account, uids, folder, risk,
                   add=list(add), remove=list(remove))
-        return
-    guard.enforce(f"message flag {uids}", risk, assume_yes=assume_yes)
-    with ImapClient.connect(cfg.endpoint, account) as c:
+            return
+        guard.enforce(f"message flag {uids}", risk, assume_yes=assume_yes)
         c.set_flags(uids, folder=folder, add=list(add), remove=list(remove))
     out_mod.out_ok(f"Flags updated ({len(uids)}).")
 
@@ -359,6 +362,7 @@ def mark_cmd(ctx, uid, read, folder, dry_run) -> None:
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(folder, "message mark")
         add_flags = ["\\Seen"] if read else []
         remove_flags = [] if read else ["\\Seen"]
         if dry_run:
@@ -383,6 +387,7 @@ def delete_cmd(ctx, uid, folder, expunge, assume_yes, dry_run) -> None:
     cfg, account = _resolve_one(ctx)
     uids = _uids(uid)
     with ImapClient.connect(cfg.endpoint, account) as c:
+        c.ensure_writable(folder, "message delete")
         trash = c.special_folders().get("trash", "Trash")
         permanent = expunge or folder == trash
         risk = guard.CRITICAL if permanent else guard.escalate(guard.CONFIRM, count=len(uids))

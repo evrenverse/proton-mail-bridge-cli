@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from proton_mail_bridge.core.config import Account, Endpoint
+from proton_mail_bridge.core.errors import BridgeError
 
 FETCH_BATCH = 200
 """Messages per FETCH round while scanning. Keeps memory flat and lets a client-side
@@ -103,6 +104,7 @@ class ImapClient:
     def __init__(self, mailbox: Any, account_email: str):
         self._mb = mailbox
         self._email = account_email
+        self._special: dict[str, str] | None = None
 
     @classmethod
     def connect(
@@ -336,14 +338,32 @@ class ImapClient:
     def special_folders(self) -> dict[str, str]:
         """Logical name (all/sent/drafts/trash/junk/archive/flagged) → real folder name
         via RFC 6154 special-use flags (language-independent; Proton names are
-        localized)."""
-        result: dict[str, str] = {}
-        for f in self._mb.folder.list():
-            flags = {str(x).lower() for x in (f.flags or ())}
-            for key, attr in SPECIAL_USE.items():
-                if attr.lower() in flags:
-                    result[key] = f.name
-        return result
+        localized). Cached per instance — one LIST per connection is enough."""
+        if self._special is None:
+            result: dict[str, str] = {}
+            for f in self._mb.folder.list():
+                flags = {str(x).lower() for x in (f.flags or ())}
+                for key, attr in SPECIAL_USE.items():
+                    if attr.lower() in flags:
+                        result[key] = f.name
+            self._special = result
+        return self._special
+
+    def is_all_mail(self, folder: str) -> bool:
+        return folder == self.special_folders().get("all", ALL_MAIL_FALLBACK)
+
+    def ensure_writable(self, folder: str, what: str) -> None:
+        """All Mail is a virtual view over every other folder: the Bridge rejects writes to
+        it, and a mail 'removed' there would still sit in its real folder. Say so instead of
+        letting the server refuse it in its own words."""
+        if self.is_all_mail(folder):
+            raise BridgeError(
+                "read_only",
+                f"{folder} is read-only",
+                f"{what} cannot run in {folder} — it is a duplicate view over every other "
+                "folder. Work folder by folder instead (message search --all-folders "
+                "--ids-only, or message bulk-move/bulk-delete, which skip it).",
+            )
 
     def resolve_folder(self, folder: str | None, default_special: str = "all") -> str:
         """`folder` if set; otherwise the special-use default (e.g. 'all' → 'All Mail'),
@@ -357,6 +377,8 @@ SPECIAL_USE = {
     "all": "\\All", "sent": "\\Sent", "drafts": "\\Drafts", "trash": "\\Trash",
     "junk": "\\Junk", "archive": "\\Archive", "flagged": "\\Flagged",
 }
+
+ALL_MAIL_FALLBACK = "All Mail"
 
 
 def for_accounts(accounts: list[Account], fn: Callable[[Account], Any]) -> list[dict]:
