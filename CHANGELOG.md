@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-08-14)
 - `--dry-run` on every writing command (previously only `compose send/reply/forward`):
   `message move/copy/flag/mark/delete`, `mailbox create`, `compose draft`,
   `attachment download`, `account add/add-raw/remove/set-default`,
@@ -17,6 +17,9 @@
   `--save` it already is the preview.
 - The existing `compose` dry runs gained `action`/`risk` (and `cc`/`bcc`/`attachments` on
   `send`); existing keys are unchanged.
+- Fix: `pmb <group> --help` (and every nested `--help`) exited 1 and, under `--json`, appended
+  a bogus error object to the help text. `click.exceptions.Exit` inherits from `RuntimeError`
+  and was swallowed by the catch-all — on the very path the skill documents for discovery.
 
 ## 0.2.0 (2026-08-09)
 - Multiple sender identities per account: `account identity add/remove/set-default/discover`,
