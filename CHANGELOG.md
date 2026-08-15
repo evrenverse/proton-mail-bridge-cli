@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-08-15)
 - **Signatures.** Mail sent through the Bridge went out unsigned, and no setting could
   change that: the signature configured in the Proton apps is inserted by those composers,
   while the Bridge only relays the finished message. It now lives in a local file per
