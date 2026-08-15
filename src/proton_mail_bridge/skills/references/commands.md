@@ -161,4 +161,8 @@ The signature of the sending identity is appended automatically when the config 
   groups (`describe account identity add`) and lists a group's commands when given a group
 - `pmb --json fields message|folder|attachment` — JSON shape documentation
 - `pmb skill install --agent claude|codex [--dest PATH --dry-run]` — copy skill files into the
-  agent location; the dry run lists the target files and which of them would be overwritten
+  agent location; the dry run lists the target files and which of them would be overwritten.
+  `--dest` is the directory written into, identically for both agents; only the defaults
+  differ (`.claude/skills/proton-mail-bridge` vs. the project root Codex reads AGENTS.md
+  from). Re-running updates an AGENTS.md this installer wrote and still refuses a
+  project-owned one.

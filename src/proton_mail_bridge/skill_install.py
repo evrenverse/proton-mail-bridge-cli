@@ -8,9 +8,23 @@ import click
 
 from proton_mail_bridge.utils import output as out_mod
 
+TITLE_MARKER = "# proton-mail-bridge"
+
 
 def _skills_dir() -> Path:
     return Path(str(resources.files("proton_mail_bridge").joinpath("skills")))
+
+
+def _is_ours(path: Path) -> bool:
+    """True for an AGENTS.md this installer wrote — any version, including older ones in a
+    different language. Those may be replaced by an update; anything else belongs to the
+    project and must not be lost."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").lstrip().startswith(
+            TITLE_MARKER
+        )
+    except OSError:
+        return False
 
 
 @click.group("skill")
@@ -37,22 +51,30 @@ def _plan(agent: str, target: Path, files: list[Path]) -> None:
     default="claude",
     show_default=True,
 )
-@click.option("--dest", default=None, help="Target directory (default: agent-typical).")
+@click.option("--dest", default=None,
+              help="Exact directory to write into (default: agent-typical).")
 @out_mod.dry_run_option
 def install(agent: str, dest: str | None, dry_run: bool) -> None:
-    """Copies SKILL.md/AGENTS.md + references to the agent location."""
+    """Copies SKILL.md/AGENTS.md + references to the agent location.
+
+    `--dest` names the directory that is written into, the same way for both agents. Only
+    the defaults differ, because the agents do: Claude reads one folder per skill, Codex
+    reads AGENTS.md from the project root.
+    """
     src = _skills_dir()
     if agent == "claude":
-        root = (Path(dest) if dest else Path.cwd() / ".claude" / "skills") / "proton-mail-bridge"
+        root = (Path(dest) if dest
+                else Path.cwd() / ".claude" / "skills" / "proton-mail-bridge")
         files = {src / "SKILL.md": root / "SKILL.md"}
         done = f"Claude skill installed → {root}"
     else:
         root = Path(dest) if dest else Path.cwd()
-        if (root / "AGENTS.md").exists():
-            # never clobber an existing (possibly project-owned) AGENTS.md
+        agents_md = root / "AGENTS.md"
+        if agents_md.exists() and not _is_ours(agents_md):
+            # never clobber a project-owned AGENTS.md; replacing our own is an update
             raise click.ClickException(
-                f"{root / 'AGENTS.md'} already exists — merge the content manually "
-                "or pick another target with --dest."
+                f"{agents_md} exists and was not written by this installer — merge the "
+                "content manually or pick another target with --dest."
             )
         # Codex auto-reads AGENTS.md only, so SKILL.md rides along as the long form under
         # references/ (linked from the AGENTS.md footer) instead of cluttering the project root
