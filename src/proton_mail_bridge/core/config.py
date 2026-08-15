@@ -32,6 +32,10 @@ class Identity:
     email: str
     name: str | None = None
     label: str | None = None
+    # Signature files. The Bridge is a plain SMTP relay and never adds the signature
+    # configured in the Proton apps, so it has to live locally.
+    signature_file: str | None = None
+    signature_html_file: str | None = None
 
     def formatted(self) -> str:
         """RFC-5322 From value; formataddr encodes non-ASCII names per RFC 2047."""
@@ -69,6 +73,15 @@ def config_path(env: Mapping[str, str] | None = None) -> Path:
     return Path.home() / ".config" / "proton-mail-bridge" / "config.toml"
 
 
+def resolve_path(value: str, base: Path | None = None) -> Path:
+    """Expand `~` and resolve a relative path against the config directory.
+
+    Signature files usually sit next to config.toml, so relative entries stay portable.
+    """
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else (base or config_path().parent) / path
+
+
 def _load_file(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -95,7 +108,13 @@ def load_config(path: Path | None = None) -> Config:
             password=a.get("password", ""),
             alias=a.get("alias"),
             identities=[
-                Identity(email=i["email"], name=i.get("name"), label=i.get("label"))
+                Identity(
+                    email=i["email"],
+                    name=i.get("name"),
+                    label=i.get("label"),
+                    signature_file=i.get("signature_file"),
+                    signature_html_file=i.get("signature_html_file"),
+                )
                 for i in a.get("identities", [])
             ],
             default_identity=a.get("default_identity"),
@@ -157,7 +176,13 @@ def _account_dict(account: Account) -> dict:
         data["identities"] = [
             {
                 k: v
-                for k, v in {"email": i.email, "name": i.name, "label": i.label}.items()
+                for k, v in {
+                    "email": i.email,
+                    "name": i.name,
+                    "label": i.label,
+                    "signature_file": i.signature_file,
+                    "signature_html_file": i.signature_html_file,
+                }.items()
                 if v is not None
             }
             for i in account.identities

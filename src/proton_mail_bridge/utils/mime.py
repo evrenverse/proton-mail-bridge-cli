@@ -5,6 +5,8 @@ from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
 
+from proton_mail_bridge.utils import signature as sig_mod
+
 
 def build_message(
     *,
@@ -18,6 +20,8 @@ def build_message(
     attachments: list[str | tuple[str, bytes, str | None]] | None,
     in_reply_to: str | None = None,
     references: list[str] | None = None,
+    signature: str | None = None,
+    signature_html: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = sender
@@ -35,8 +39,14 @@ def build_message(
         if filtered:
             msg["References"] = " ".join(filtered)
 
-    msg.set_content(body_text or "")
+    text = body_text or ""
+    if signature:
+        text = sig_mod.append_text(text, signature)
+    msg.set_content(text)
     if body_html:
+        # A signature-only HTML part would turn every plain send into multipart.
+        if signature_html:
+            body_html = sig_mod.append_html(body_html, signature_html)
         msg.add_alternative(body_html, subtype="html")
 
     for att in attachments or []:

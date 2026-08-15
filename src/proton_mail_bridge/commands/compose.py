@@ -7,6 +7,12 @@ from proton_mail_bridge.core.identity import resolve_identity
 from proton_mail_bridge.core.smtp import SmtpSession
 from proton_mail_bridge.utils import mime
 from proton_mail_bridge.utils import output as out_mod
+from proton_mail_bridge.utils import signature as sig_mod
+
+no_signature_option = click.option(
+    "--no-signature", "no_signature", is_flag=True,
+    help="Do not append the identity's signature.",
+)
 
 
 @click.group("compose")
@@ -16,6 +22,12 @@ def compose_group() -> None:
 
 def _csv(value: str | None) -> list[str]:
     return [x.strip() for x in value.split(",") if x.strip()] if value else []
+
+
+def _signature(ident, no_signature: bool) -> tuple[str | None, str | None]:
+    """(text, html) signature to append. Reads the files early: a broken path must fail
+    before the message goes out, and must show up in `--dry-run`."""
+    return (None, None) if no_signature else sig_mod.load(ident)
 
 
 def _fetch_original(client, uid: str, folder: str, account_email: str) -> dict:
@@ -49,12 +61,13 @@ def _body(body: str | None, body_file: str | None) -> str:
 @click.option("--from", "from_", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity: address or label (see `account identity`).")
+@no_signature_option
 @out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def send_cmd(
     ctx, to, cc, bcc, subject, body, body_file, html_file, attach, from_, identity,
-    dry_run, assume_yes
+    no_signature, dry_run, assume_yes
 ) -> None:
     """Send mail (🟡). Verifies the send via the returned Message-ID."""
     from proton_mail_bridge.core import guard
@@ -66,15 +79,18 @@ def send_cmd(
         from pathlib import Path
 
         html = Path(html_file).read_text(encoding="utf-8")
+    sig_text, sig_html = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=_csv(to), cc=_csv(cc), bcc=_csv(bcc), subject=subject,
         body_text=_body(body, body_file), body_html=html, attachments=list(attach),
+        signature=sig_text, signature_html=sig_html,
     )
     if dry_run:
         out_mod.out_plan("compose send", {
             "from": ident.email, "account": account.email, "to": _csv(to),
             "cc": _csv(cc), "bcc": _csv(bcc), "subject": subject,
             "attachments": list(attach), "risk": guard.CONFIRM,
+            "signature": None if no_signature else ident.signature_file,
         })
         return
     guard.enforce(f"compose send → {to}", guard.CONFIRM, assume_yes=assume_yes)
@@ -93,11 +109,13 @@ def send_cmd(
 @click.option("--attach", multiple=True, type=click.Path(exists=True))
 @click.option("--identity", "identity", default=None,
               help="Sender identity; defaults to the address the mail was sent to.")
+@no_signature_option
 @out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
 def reply_cmd(
-    ctx, uid, folder, reply_all, body, body_file, attach, identity, dry_run, assume_yes
+    ctx, uid, folder, reply_all, body, body_file, attach, identity, no_signature,
+    dry_run, assume_yes
 ) -> None:
     """Reply to a message (🟡, sets In-Reply-To/References)."""
     from proton_mail_bridge.core import guard
@@ -120,17 +138,20 @@ def reply_cmd(
         recipients += [a for a in original["to"]
                        if a.lower() not in mine and a != original["from"]]
         cc_list = [a for a in original["cc"] if a.lower() not in mine]
+    sig_text, sig_html = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=recipients, cc=cc_list or None, bcc=None,
         subject="Re: " + base_subject, body_text=_body(body, body_file),
         body_html=None, attachments=list(attach),
         in_reply_to=original["message_id"], references=[original["message_id"]],
+        signature=sig_text, signature_html=sig_html,
     )
     if dry_run:
         out_mod.out_plan("compose reply", {
             "from": ident.email, "account": account.email, "to": recipients,
             "cc": cc_list, "subject": msg["Subject"], "in_reply_to": original["message_id"],
             "attachments": list(attach), "risk": guard.CONFIRM,
+            "signature": None if no_signature else ident.signature_file,
         })
         return
     guard.enforce(f"compose reply uid={uid} ({account.email})", guard.CONFIRM,
@@ -148,10 +169,11 @@ def reply_cmd(
 @click.option("--body", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity; defaults to the address the mail was sent to.")
+@no_signature_option
 @out_mod.dry_run_option
 @click.option("--yes", "assume_yes", is_flag=True)
 @click.pass_context
-def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> None:
+def forward_cmd(ctx, uid, folder, to, body, identity, no_signature, dry_run, assume_yes) -> None:
     """Forward a message (🟡)."""
     from proton_mail_bridge.core import guard
     from proton_mail_bridge.core.identity import pick_reply_identity
@@ -165,8 +187,11 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
             (a.filename, a.payload, a.content_type) for a in c.attachments(uid, folder=folder)
         ]
     ident = chosen if identity else pick_reply_identity(account, original)
+    sig_text, _ = _signature(ident, no_signature)
+    # The signature belongs under the forwarder's own words, not under the quoted mail.
+    own = sig_mod.append_text(body or "", sig_text) if sig_text else (body or "")
     fwd_body = (
-        (body or "")
+        own
         + "\n\n---------- Forwarded message ----------\n"
         + (original.get("body_text") or "")
     )
@@ -179,6 +204,7 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
             "from": ident.email, "account": account.email, "to": _csv(to),
             "subject": msg["Subject"],
             "attachments": [a[0] for a in atts], "risk": guard.CONFIRM,
+            "signature": None if no_signature else ident.signature_file,
         })
         return
     guard.enforce(f"compose forward uid={uid} → {to} ({account.email})", guard.CONFIRM,
@@ -198,18 +224,23 @@ def forward_cmd(ctx, uid, folder, to, body, identity, dry_run, assume_yes) -> No
 @click.option("--folder", default=None)
 @click.option("--identity", "identity", default=None,
               help="Sender identity: address or label (see `account identity`).")
+@no_signature_option
 @out_mod.dry_run_option
 @click.pass_context
-def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity, dry_run) -> None:
+def draft_cmd(
+    ctx, to, subject, body, body_file, attach, folder, identity, no_signature, dry_run
+) -> None:
     """Store a draft in Drafts via IMAP APPEND (🟢)."""
     from proton_mail_bridge.core import guard
     from proton_mail_bridge.core.imap import ImapClient
 
     cfg = cfgmod.resolve_config()
     account, ident = resolve_identity(cfg, identity, ctx.obj.get("account"))
+    sig_text, sig_html = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=_csv(to), cc=None, bcc=None, subject=subject,
         body_text=_body(body, body_file), body_html=None, attachments=list(attach),
+        signature=sig_text, signature_html=sig_html,
     )
     with ImapClient.connect(cfg.endpoint, account) as c:
         target = folder or c.special_folders().get("drafts", "Drafts")
@@ -218,6 +249,7 @@ def draft_cmd(ctx, to, subject, body, body_file, attach, folder, identity, dry_r
                 "from": ident.email, "account": account.email, "to": _csv(to),
                 "subject": subject, "folder": target, "attachments": list(attach),
                 "risk": guard.FREE,
+                "signature": None if no_signature else ident.signature_file,
             })
             return
         c.append(msg.as_bytes(), target, flags=["\\Draft"])

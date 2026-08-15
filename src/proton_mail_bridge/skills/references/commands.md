@@ -21,7 +21,8 @@ UID operations (`message move/copy/flag/mark/delete`) additionally return:
 
 Commands without the flag change nothing (`search`, `read`, `list`, `mailbox list`,
 `attachment list`/`extract`, `bridge status`/`doctor`, `describe`, `fields`).
-`account identity discover` has none either: without `--save` it already is the preview.
+`account identity discover` and `account identity signature import` have none either:
+without `--save` they already are the preview.
 
 ## account
 
@@ -37,6 +38,12 @@ Commands without the flag change nothing (`search`, `read`, `list`, `mailbox lis
 - `pmb --json --account A account identity set-default <label|email> [--dry-run]`
 - `pmb --json [--account A] account identity discover [--limit N --save]` — scans the Sent
   folder for sender addresses; fans out over all accounts without `--account`
+- `pmb --json --account A account identity signature import [--identity E --dir D --scan N --save --yes]`
+  — reads back through Sent (default 25 messages) for one a Proton composer sent, and writes
+  its signature to `<label>.sig` / `<label>.sig.html` next to `config.toml`. Only Proton's
+  `protonmail_signature_block` counts — an address without a configured signature reports
+  `No signature found` rather than guessing. Without `--save` it only prints what it found;
+  `--yes` is needed to overwrite existing files.
 
 ## bridge
 
@@ -128,10 +135,15 @@ refused. Without `--all-folders` the scope is `--folder` (default INBOX).
 
 ## compose
 
-- `pmb --json --account A compose send --to A --subject S [--cc A --bcc A --body T --body-file F --html-file F --attach PATH --from E --identity E --dry-run --yes]` 🟡
-- `pmb --json --account A compose reply --uid U [--folder F --all --body T --attach PATH --identity E --dry-run --yes]` 🟡
-- `pmb --json --account A compose forward --uid U --to A [--folder F --body T --identity E --dry-run --yes]` 🟡
-- `pmb --json --account A compose draft --to A --subject S [--folder F --body T --attach PATH --identity E --dry-run]` 🟢
+- `pmb --json --account A compose send --to A --subject S [--cc A --bcc A --body T --body-file F --html-file F --attach PATH --from E --identity E --no-signature --dry-run --yes]` 🟡
+- `pmb --json --account A compose reply --uid U [--folder F --all --body T --attach PATH --identity E --no-signature --dry-run --yes]` 🟡
+- `pmb --json --account A compose forward --uid U --to A [--folder F --body T --identity E --no-signature --dry-run --yes]` 🟡
+- `pmb --json --account A compose draft --to A --subject S [--folder F --body T --attach PATH --identity E --no-signature --dry-run]` 🟢
+
+The signature of the sending identity is appended automatically when the config sets a
+`signature_file` for it — the Bridge itself never adds the one from the Proton apps.
+`--no-signature` suppresses it; `--dry-run` reports which file would be used under
+`signature`.
 
 ## attachment
 

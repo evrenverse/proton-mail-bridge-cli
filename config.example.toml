@@ -20,8 +20,12 @@ default_identity = "kontakt"
 # Further addresses of the SAME Proton account (Bridge in combined-addresses mode).
 # `pmb account identity discover --save` fills in email/name automatically; labels are
 # never guessed — add one via `account identity add --label` or by hand, as below.
+# signature_file / signature_html_file: the Bridge never adds the signature configured in
+# the Proton apps, so it lives here. Relative paths resolve against this file's directory;
+# `pmb account identity signature import --save` creates and links them.
 identities = [
-    { email = "kontakt@proton.me", name = "Kontakt", label = "kontakt" },
+    { email = "kontakt@proton.me", name = "Kontakt", label = "kontakt",
+      signature_file = "kontakt.sig", signature_html_file = "kontakt.sig.html" },
     { email = "rechnung@proton.me", name = "Accounting", label = "rechnung" },
 ]
 

@@ -60,7 +60,7 @@ def test_describe_group_lists_its_commands():
     result = CliRunner().invoke(main, ["--json", "describe", "account", "identity"])
     assert result.exit_code == 0
     assert set(json.loads(result.output)["commands"]) == {
-        "add", "remove", "set-default", "discover"}
+        "add", "remove", "set-default", "discover", "signature"}
 
 
 def test_describe_unknown_path_errors():
