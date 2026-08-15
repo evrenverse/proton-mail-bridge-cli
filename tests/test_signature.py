@@ -103,6 +103,7 @@ def test_load_missing_file_is_a_hard_error(tmp_path):
 
 def test_load_expands_the_home_shortcut(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # expanduser() reads this on Windows
     (tmp_path / "k.sig").write_text("Evren", encoding="utf-8")
     ident = Identity("k@p.me", signature_file="~/k.sig")
     assert signature.load(ident, base=tmp_path / "elsewhere")[0] == "Evren"
