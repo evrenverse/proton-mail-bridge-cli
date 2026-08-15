@@ -1,6 +1,6 @@
 [project]
 name = "proton-mail-bridge-cli"
-version = "0.5.0"
+version = "0.6.0"
 description = "Unofficial, agent-native CLI for Proton Mail Bridge (IMAP/SMTP)"
 readme = "README.md"
 requires-python = ">=3.11"

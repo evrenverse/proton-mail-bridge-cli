@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 (2026-08-15)
+- **Breaking: `skill install --dest` now names the directory that is written into, for both
+  agents.** It used to be the *parent* for `--agent claude` (files landed in
+  `<dest>/proton-mail-bridge/`) and the *target* for `--agent codex` (files landed directly
+  in `<dest>`). The same path therefore behaved differently depending on the agent, and
+  pointing `--dest` at a skills collection scattered `AGENTS.md` and `references/` across it.
+  The defaults are unchanged in effect (`.claude/skills/proton-mail-bridge` for Claude, the
+  project root for Codex), so only explicit `--dest` callers are affected: drop the
+  collection directory and name the skill folder itself.
+- **`skill install --agent codex` can update its own AGENTS.md.** It refused *every*
+  existing AGENTS.md, but the file in the way is normally an older copy the installer wrote
+  itself, so updating meant deleting by hand. It now replaces a file that starts with our
+  own title and still refuses a project-owned one.
+
 ## 0.5.0 (2026-08-15)
 - **Signatures.** Mail sent through the Bridge went out unsigned, and no setting could
   change that: the signature configured in the Proton apps is inserted by those composers,
