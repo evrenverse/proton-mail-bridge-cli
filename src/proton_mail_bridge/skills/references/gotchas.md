@@ -71,6 +71,23 @@ Sorting/threading happens client-side; `pmb --json account info` shows **no** qu
   for *any* address, including addresses that do not exist. The check happens at send time.
   That is why identities are discovered from the Sent folder instead of probed via SMTP.
 
+## Signatures are not carried over the Bridge
+
+The signature configured in the Proton web/desktop/mobile app is inserted by **those
+composers**, not by the account: the Bridge relays the MIME message it is handed and adds
+nothing. A mail sent via `compose` therefore has no signature unless the config gives the
+sending identity a `signature_file` (`account identity signature import --save` sets one up
+from a message Proton itself sent). Never tell a human "Proton will add it" — it will not.
+
+`--no-signature` suppresses it per command, `--dry-run` reports the file under `signature`.
+The HTML signature is only used when the mail actually has an HTML part.
+
+`signature import` only accepts Proton's own `protonmail_signature_block`. Do **not** try to
+recover a signature by cutting a mail body at the last `-- ` line: in real mail that
+separator normally belongs to a *quoted* signature, so it yields some other company's footer.
+An address with no signature configured shows up as an empty block — that is an answer
+("this address has none"), not a reason to keep looking.
+
 ## Limits
 
 Message ≤ **25 MB**; free plan **150 mails/day, 50/h**; ≤ **100 recipients/mail**.

@@ -356,6 +356,106 @@ def identity_discover_cmd(ctx: click.Context, limit: int, do_save: bool) -> None
     out_mod.out(results)
 
 
+@identity_group.group("signature")
+def signature_group() -> None:
+    """Signature files of a sender identity."""
+
+
+@signature_group.command("import")
+@click.option("--identity", "identity", default=None,
+              help="Identity to import for; defaults to the account's default identity.")
+@click.option("--dir", "target_dir", default=None,
+              help="Where to write the files (default: next to config.toml).")
+@click.option("--scan", default=25, show_default=True,
+              help="How many sent messages to read back through, newest first.")
+@click.option("--save", "do_save", is_flag=True,
+              help="Write the signature files and reference them from the config.")
+@click.option("--yes", "assume_yes", is_flag=True)
+@click.pass_context
+def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -> None:
+    """Read a signature out of a message Proton itself sent (🟢).
+
+    Proton keeps the signature server-side and only its own composers insert it, so a
+    sent message is the only place the Bridge can see it — recognised by Proton's own
+    `protonmail_signature_block` marker. Mail sent through this CLI has no such block, so
+    the scan reads back until it finds one. Without `--save` this prints what it found
+    and changes nothing.
+    """
+    from pathlib import Path
+
+    from proton_mail_bridge.core import guard
+    from proton_mail_bridge.core.errors import BridgeError
+    from proton_mail_bridge.core.identity import resolve_identity
+    from proton_mail_bridge.core.imap import ImapClient
+    from proton_mail_bridge.utils import signature as sig_mod
+
+    path = config_path()
+    cfg = load_config(path)                # the file we mutate and save
+    endpoint = resolve_config().endpoint   # env overrides apply to the connection
+    account, ident = resolve_identity(cfg, identity, ctx.obj.get("account"))
+    with ImapClient.connect(endpoint, account) as c:
+        folder = c.special_folders().get("sent")
+        if not folder:
+            raise BridgeError(
+                "config",
+                "No Sent folder found",
+                "The account exposes no \\Sent special-use folder — nothing to read a "
+                "signature from. Write the file by hand and set signature_file.",
+            )
+        # Mail sent through this CLI carries no signature block and is exactly what sits
+        # at the top of Sent, so read back until a message from a Proton composer turns up.
+        records, stats = c.search(
+            {"from_": ident.email}, folder=folder, limit=1,
+            with_body=True, with_attachments=False, scan_needs_body=True, max_fetch=scan,
+            keep=lambda r: any(sig_mod.extract(r.get("body_html"))),
+        )
+    if not records:
+        if not stats["candidates"]:
+            out_mod.out_err("not_found", "No sent message from this identity",
+                            f"{ident.email} in {folder} of {account.email}")
+        out_mod.out_err(
+            "not_found",
+            "No signature found",
+            f"scanned {stats['scanned']} of {stats['candidates']} message(s) from "
+            f"{ident.email}, none carries a {sig_mod.BLOCK}. "
+            + ("Raise --scan to read further back. " if stats.get("truncated") else "")
+            + "Proton marks an unset signature as empty, so this address may have none — "
+            "then write the file by hand and set signature_file.",
+        )
+    rec = records[0]
+    text_sig, html_sig = sig_mod.extract(rec.get("body_html"))
+    found = {"identity": ident.email, "account": account.email, "folder": folder,
+             "source_uid": rec["uid"], "signature": text_sig, "signature_html": html_sig}
+    if not do_save:
+        out_mod.out({**found, "saved": None,
+                     "hint": "Check the text above, then repeat with --save."})
+        return
+
+    base = Path(target_dir).expanduser() if target_dir else path.parent
+    stem = ident.label or ident.email.split("@")[0]
+    targets = {"signature_file": (base / f"{stem}.sig", text_sig),
+               "signature_html_file": (base / f"{stem}.sig.html", html_sig)}
+    clobbered = [str(p) for p, content in targets.values() if content and p.exists()]
+    if clobbered:
+        guard.enforce(f"overwrite {', '.join(clobbered)}", guard.CONFIRM,
+                      assume_yes=assume_yes)
+    # The login address may have no entry of its own yet, and only an entry can hold paths.
+    if not any(i is ident for i in account.identities):
+        account.identities.append(ident)
+    base.mkdir(parents=True, exist_ok=True)
+    saved: dict[str, str] = {}
+    for field, (target, content) in targets.items():
+        if not content:
+            continue
+        target.write_text(content + "\n", encoding="utf-8")
+        # Relative next to config.toml keeps the config portable; elsewhere needs the path.
+        setattr(ident, field,
+                target.name if base.resolve() == path.parent.resolve() else str(target))
+        saved[field] = str(target)
+    save_config(cfg, path)
+    out_mod.out({**found, "saved": saved, "config": str(path)})
+
+
 def _autodetect_security(endpoint) -> None:
     """Banner probe per port; corrects the selection when the server speaks differently.
     (macOS Bridge: SMTP often ssl, IMAP starttls — not representable with a single value.)"""

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+- **Signatures.** Mail sent through the Bridge went out unsigned, and no setting could
+  change that: the signature configured in the Proton apps is inserted by those composers,
+  while the Bridge only relays the finished message. It now lives in a local file per
+  identity — `signature_file` and `signature_html_file` in the config, relative paths
+  resolving against the config directory — and `compose send`/`reply`/`forward`/`draft`
+  append it. `--no-signature` sends without it, `--dry-run` names the file it would use.
+  The text signature is separated by the RFC 3676 `-- ` delimiter; the HTML one is only
+  used when the mail actually has an HTML part, so a plain send stays plain. On a forward
+  the signature goes under your own words, above the quoted message.
+- **`account identity signature import`** lifts the signature out of a message a Proton
+  composer sent, so it does not have to be retyped. It reads back through Sent (`--scan`,
+  25 messages by default), because mail sent through this CLI carries no signature and is
+  exactly what sits at the top of Sent. Only Proton's own `protonmail_signature_block`
+  counts, and the "Sent with Proton Mail" footer is left out. An address with no signature
+  configured shows up as an empty block and is reported as such — cutting the text body at
+  the last `-- ` line was tried against a real mailbox and returned a supplier's quoted
+  footer, so that path is gone. Without `--save` the command only prints what it found, and
+  it asks before overwriting existing files.
+
 ## 0.4.0 (2026-08-14)
 - **`message search` can look at attachments.** `--attachment-name` matches the filename,
   `--attachment-text` the text inside a PDF. `--text` only ever read the mail body, so a

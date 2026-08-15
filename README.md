@@ -89,6 +89,36 @@ pmb --json compose send --identity kontakt@proton.me --to a@x.de --subject S --b
 `--identity`/`set-default` otherwise. `reply` and `forward` answer from the address the
 original mail was sent to.
 
+### Signatures
+
+The Bridge is a plain SMTP relay: it forwards the message it is handed and **never adds the
+signature configured in the Proton apps** — that one is inserted by Proton's own composers
+only. So it has to live in a local file per identity:
+
+```bash
+pmb --json account identity signature import --identity kontakt         # preview
+pmb --json account identity signature import --identity kontakt --save  # write + link
+```
+
+`import` reads back through the Sent folder (`--scan`, 25 messages by default) until it finds
+one that a Proton composer sent — mail sent through this CLI carries no signature and is
+exactly what sits at the top of Sent. It then writes `kontakt.sig` (plus `kontakt.sig.html`)
+next to `config.toml` and points the identity at them. Only Proton's own
+`protonmail_signature_block` counts; when an address has no signature configured, Proton
+marks the block empty and the command says so instead of guessing. Writing the files by hand
+works just as well:
+
+```toml
+identities = [
+    { email = "kontakt@proton.me", label = "kontakt",
+      signature_file = "kontakt.sig", signature_html_file = "kontakt.sig.html" },
+]
+```
+
+Relative paths resolve against the config directory. Every `compose` command appends the
+signature of the sending identity; `--no-signature` sends without it, and the HTML signature
+is used only when the mail actually has an HTML part (`--html-file`).
+
 ## WSL → Windows bridge
 
 `127.0.0.1` is tried first (works with WSL in *mirrored networking mode*, native macOS,
