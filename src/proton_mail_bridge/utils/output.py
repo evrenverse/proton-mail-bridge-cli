@@ -21,6 +21,12 @@ def set_json(flag: bool) -> None:
     _AS_JSON = bool(flag)
 
 
+def is_json() -> bool:
+    """Whether --json is active. For commands whose plain-text form is not just the JSON
+    printed prettily -- `message otp` prints the bare code so it can be piped."""
+    return _AS_JSON
+
+
 def out(data: Any) -> None:
     """Success output. JSON when enabled, otherwise rich-friendly via click."""
     if _AS_JSON:

@@ -101,6 +101,24 @@ without `--save` they already are the preview.
   - `--all-folders` scans every folder except All Mail and deduplicates by Message-ID:
     `count` counts messages, `folders` counts copies, so a labelled mail raises the count
     once while still naming both folders a cleanup has to visit
+- `pmb --json message otp [--since 10m --from S --folder F]` — the newest one-time
+  verification code from a freshly arrived message, for handing to a login form
+  - `--since` is a **duration** (`10m`, `2h`, `1d`; a bare number means minutes), not the
+    ISO date the other commands take. Default `10m`, because a code from yesterday is not
+    a code. Selection is by the message date, not by mailbox order
+  - without `--folder`: INBOX **and** Spam, since verification mail lands there often enough
+  - `--from` (the shop's domain) is what turns an ambiguous window into an unambiguous one
+  - **the code is returned in `code` and nowhere else.** It is in no error message, and
+    `also_found` names the displaced messages without their codes — so a failure can be
+    logged and pasted safely
+  - `ambiguous: true` means other messages in the window also carried a candidate; the
+    newest won. Read it the way `search.truncated` is read, *before* using the code
+  - a message that yields several candidates is never used — nothing in it says which one
+    belongs in the form. If that is all there was, the command fails with `otp_ambiguous`
+  - plain (non-`--json`) output is the bare code on stdout and context on stderr, so
+    `pmb message otp --from shop.de` pipes straight into whatever needs it
+  - not everything is extractable: a pure-letter code (some senders use `BSDTKC`) is
+    refused rather than guessed. Fall back to `message search --with-body`
 - `pmb --json message read --uid 1,2,3 [--folder F --format text|html|both|raw --include-headers]`
 - `pmb --json message raw --uid U [--folder F --output PATH]`
 - `pmb --json --account A message move --uid U --to DEST [--folder F --yes --dry-run]` 🟡

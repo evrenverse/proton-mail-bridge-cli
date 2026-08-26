@@ -106,6 +106,32 @@ No `--dry-run` on read-only commands, and none on `account identity discover` �
 providers set the header on business-critical notifications. Use it to narrow a selection and
 show the result — never as an automatic reason to delete.
 
+## Verification codes (`message otp`)
+
+A shop mails a one-time code and a form wants it back. `message search` finds the mail; the
+digits still have to be picked out of it, and mail is full of numbers that are not codes.
+
+```bash
+pmb --json message otp --from voelkner.de --since 10m
+{"code": "867674", "account": "…", "folder": "INBOX", "uid": "8610",
+ "from": "noreply@voelkner.de", "subject": "…", "date": "…", "age_seconds": 411,
+ "window": "10m", "scanned": 4, "folders": ["INBOX", "Spam"],
+ "ambiguous": false, "also_found": []}
+```
+
+- `--since` is a **duration** here (`10m`, `2h`, `1d`), not an ISO date — default `10m`,
+  because a code from yesterday is not a code. Selection goes by message date.
+- Without `--folder` it reads INBOX **and** Spam.
+- **Check `ambiguous` before using the code**, exactly like `search.truncated`. `true` means
+  other messages in the window carried a candidate too and the newest one won; `also_found`
+  names them by `uid`/`from`/`date` and their `shape` (`"6 digits"`) — **never their code**.
+  Narrow with `--from`.
+- The code appears in `code` and nowhere else. No error message quotes one, so a failing
+  run can be logged or pasted without leaking anything.
+- Refusals are on purpose: a message with several candidates is never used (`otp_ambiguous`),
+  and a pure-letter code is not extracted at all. Fall back to
+  `message search --with-body --limit 1` and read it yourself.
+
 ## Error format
 
 `{"ok": false, "error": {"type": "...", "title": "...", "detail": "..."}}` (exit ≠ 0)
@@ -121,6 +147,8 @@ show the result — never as an automatic reason to delete.
   `pmb --json message search --attachment-text 26593328 --since 2026-06-01` (text inside the
   PDFs). Searching by invoice number, amount or customer number belongs in the second pass —
   those live in the document, not in the mail.
+- Log in somewhere that mails a code: trigger the login, then
+  `pmb --json message otp --from <shop-domain> --since 10m` → check `ambiguous` → use `code`
 - Send mail: `pmb --json compose send --to a@x.com --subject "..." --body "..." --dry-run`
   → review → send without `--dry-run`
 - Clean up in bulk: `message search --ids-only` → `message move --uid <ids> --to Trash --dry-run`

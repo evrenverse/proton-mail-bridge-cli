@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+- **`message otp` pulls the one-time verification code out of a freshly arrived mail.**
+  An agent logging into a shop had to run `message search --from … --json`, read the hits
+  and pick the digits out by hand — differently every time. `pmb --json message otp
+  --from voelkner.de --since 10m` returns one code, or fails and says so.
+  - `--since` is a duration (`10m`, `2h`, `1d`; a bare number means minutes), not the ISO
+    date the other commands take, and it defaults to `10m`: a code from yesterday is not a
+    code. The selection goes by message date, not by mailbox order. Without `--folder` it
+    reads INBOX **and** Spam, where verification mail lands often enough to strand an agent.
+  - **The code appears in `code` and nowhere else.** No error message quotes one, and the
+    displaced messages in `also_found` are named by `uid`/`from`/`date` and their `shape`
+    (`"6 digits"`) — a failing run can be logged or pasted without leaking anything. Plain
+    output is the bare code on stdout with the context on stderr, so it pipes.
+  - `ambiguous: true` means other messages in the window carried a candidate too and the
+    newest won. Read it before using the code, the way `search.truncated` is read; narrow
+    with `--from`.
+  - What it refuses is the point. A message that offers several candidates is never used —
+    nothing in it says which one the form wants — and the command fails with
+    `otp_ambiguous` rather than guessing. Pure-letter codes are not extracted at all.
+  - The filtering was built against 1495 real messages from two mailboxes, including Trash
+    and Spam, and every rule in it comes from a mail that broke an earlier one: an expiry
+    line reading `Gültig bis: 26.08.2026 18:55` as the code `202618`, a footer address
+    `Klaus-Conrad-Str. 1 92242 Hirschau` as `192242`, GitHub release notes anchored on
+    `Decode` handing back pull request numbers, a `Reg. code` in an Estonian imprint, a
+    `+49 69` phone number, an `1&1 Service-PIN` next to the postal code of Montabaur.
+    A candidate now counts only next to a genuine code word, grouped codes must come out
+    in equal groups, and digits beat letters.
+
 ## 0.6.0 (2026-08-15)
 - **Breaking: `skill install --dest` now names the directory that is written into, for both
   agents.** It used to be the *parent* for `--agent claude` (files landed in

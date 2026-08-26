@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime as _dt
+
 import click
 
 from proton_mail_bridge.core import config as cfgmod
@@ -300,6 +302,158 @@ def read_cmd(ctx, uid, folder, fmt, include_headers, mark_read) -> None:
             return result
 
     out_mod.out(for_accounts(accounts, fn))
+
+
+@message_group.command("otp")
+@click.option("--since", default="10m",
+              help="How far back to look: 10m, 2h, 1d (a bare number means minutes). A "
+                   "duration, not the ISO date the other commands take -- a code from "
+                   "yesterday is not a code.")
+@click.option("--from", "from_", default=None,
+              help="Sender filter, e.g. the shop's domain. The one option that turns an "
+                   "ambiguous window into an unambiguous one.")
+@click.option("--folder", default=None,
+              help="Single folder. Without it: INBOX and Spam, because verification mail "
+                   "lands in Spam often enough to leave an agent stuck.")
+@click.pass_context
+def otp_cmd(ctx, since, from_, folder) -> None:
+    """The newest one-time verification code from a freshly arrived message.
+
+    Prints the code and nothing else on stdout, so it can be piped straight into a form.
+    Every message that also carried a candidate is listed in `also_found` WITHOUT its
+    code -- read `ambiguous` before using the result, the way `search.truncated` is read.
+    """
+    from proton_mail_bridge.utils import otp as otp_mod
+
+    cfg = cfgmod.resolve_config()
+    accounts = resolve_accounts(cfg, ctx.obj.get("account"), mode="read")
+    try:
+        window = otp_mod.parse_window(since)
+    except ValueError as exc:
+        out_mod.out_err("usage", "Invalid --since", str(exc), exit_code=2)
+        return
+
+    now = _dt.datetime.now(_dt.UTC)
+    cutoff = now - window
+    # IMAP SINCE compares dates in the server's timezone, not ours. A day of slack costs
+    # one header scan and removes the edge where a message from minutes ago falls out of
+    # the server-side window; the exact cut happens client-side below.
+    crit = search_mod.build_criteria(
+        from_=None if search_mod.is_non_ascii(from_) else from_,
+        since=(cutoff.date() - _dt.timedelta(days=1)).isoformat(),
+    )
+
+    def keep(rec: dict) -> bool:
+        when = otp_mod.parse_date(rec.get("date"))
+        if when is None or when < cutoff:
+            return False
+        # --from is checked here as well as server-side. It is the option that decides
+        # whose code ends up in a form, and IMAP FROM matching is not worth trusting on
+        # its own -- the server-side criterion above only keeps the scan small.
+        return not from_ or from_.lower() in str(rec.get("from", "")).lower()
+
+    def fn(account):
+        with ImapClient.connect(cfg.endpoint, account) as c:
+            folders = [folder] if folder else _otp_folders(c)
+            recs: list[dict] = []
+            scanned = 0
+            for f in folders:
+                # headers-only scan (scan_needs_body=False) decides freshness; only the
+                # few survivors are fetched with a body
+                found, stats = c.search(crit, folder=f, limit=None, with_body=True,
+                                        with_attachments=False, keep=keep,
+                                        scan_needs_body=False)
+                scanned += stats["scanned"]
+                recs.extend(found)
+            return recs, {"scanned": scanned, "folders": folders}
+
+    results = for_accounts(accounts, fn)
+    _emit_otp(results, since=since, now=now)
+
+
+def _otp_folders(client) -> list[str]:
+    """INBOX plus the Spam folder under whatever name this account gives it."""
+    junk = client.special_folders().get("junk")
+    return ["INBOX"] + ([junk] if junk and junk != "INBOX" else [])
+
+
+def _emit_otp(results: list[dict], *, since: str, now: _dt.datetime) -> None:
+    """Pick the newest usable message and print its code -- or fail without quoting one.
+
+    A message that yields several candidates is never used: there is nothing in it that
+    says which one the form wants. Across messages the newest wins, and everything it
+    displaced is reported.
+    """
+    from proton_mail_bridge.utils import otp as otp_mod
+
+    scanned = sum(r.get("scanned", 0) for r in results if r.get("ok"))
+    folders = sorted({f for r in results if r.get("ok") for f in r.get("folders", [])})
+    failed = [r["account"] for r in results if not r.get("ok")]
+
+    # (arrival, record, code) -- the timestamp is carried along because the selection is
+    # by time, and parsing it twice would be two chances to disagree with itself
+    usable: list[tuple[_dt.datetime, dict, str]] = []
+    unusable: list[dict] = []
+    for rec in (rec for r in results if r.get("ok") for rec in r["items"]):
+        codes = otp_mod.extract(rec.get("subject"), rec.get("body_text"),
+                                rec.get("body_html"))
+        when = otp_mod.parse_date(rec.get("date"))
+        if when is None:  # the freshness filter already rejected these
+            continue
+        if len(codes) == 1:
+            usable.append((when, rec, codes[0]))
+        elif codes:
+            unusable.append(rec)
+
+    usable.sort(key=lambda found: found[0], reverse=True)
+    scope = f"{scanned} messages in {', '.join(folders) or 'no folder'}"
+    if failed:
+        scope += f" ({len(failed)} account(s) unreachable: {', '.join(failed)})"
+
+    if not usable:
+        if unusable:
+            out_mod.out_err(
+                "otp_ambiguous", f"No usable code in the last {since}",
+                f"{len(unusable)} message(s) carried several candidates each, and nothing "
+                f"in them says which one belongs in the form. Narrow it with --from. "
+                f"Scanned {scope}.",
+            )
+            return
+        out_mod.out_err(
+            "otp_not_found", f"No verification code in the last {since}",
+            f"Scanned {scope}. Widen --since, drop --from, or name the folder the mail "
+            f"landed in with --folder.",
+        )
+        return
+
+    when, rec, code = usable[0]
+    # every message that also produced something -- described, never quoted
+    also = [
+        {"account": other["account"], "folder": other["folder"], "uid": other["uid"],
+         "from": other["from"], "date": other["date"],
+         "shape": otp_mod.shape(other_code) if other_code else "several candidates"}
+        for other, other_code in ([(r, c) for _, r, c in usable[1:]]
+                                  + [(o, "") for o in unusable])
+    ]
+    age = int((now - when).total_seconds())
+    payload = {
+        "code": code,
+        "account": rec["account"], "folder": rec["folder"], "uid": rec["uid"],
+        "from": rec["from"], "subject": rec["subject"], "date": rec["date"],
+        "age_seconds": age, "window": since, "scanned": scanned, "folders": folders,
+        "ambiguous": bool(also), "also_found": also,
+    }
+    if not out_mod.is_json():
+        # the bare code on stdout, so `pmb message otp | xclip` is the whole story;
+        # context goes to stderr, which never carries the code itself
+        click.echo(code)
+        click.echo(f"  {rec['from']} · {age}s ago · {rec['folder']} · uid {rec['uid']}",
+                   err=True)
+        if also:
+            click.echo(f"  ambiguous: {len(also)} other message(s) in this window carried "
+                       f"a candidate — narrow with --from", err=True)
+        return
+    out_mod.out(payload)
 
 
 @message_group.command("raw")
