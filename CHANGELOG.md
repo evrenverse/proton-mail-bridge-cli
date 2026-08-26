@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-08-26)
 - **`message otp` pulls the one-time verification code out of a freshly arrived mail.**
   An agent logging into a shop had to run `message search --from … --json`, read the hits
   and pick the digits out by hand — differently every time. `pmb --json message otp
