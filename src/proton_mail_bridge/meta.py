@@ -17,6 +17,18 @@ _FIELDS = {
             "null_when": "the message carries no List-Unsubscribe header (RFC 2369)",
             "note": "bulk-sender signal, not a verdict — notifications set it too",
         },
+        "otp": {
+            "note": "payload of `message otp` -- a single object, not a per-account list",
+            "fields": ["code", "account", "folder", "uid", "from", "subject", "date",
+                       "age_seconds", "window", "scanned", "folders", "ambiguous",
+                       "also_found"],
+            "ambiguous": "other messages in the window carried a candidate too and the "
+                         "newest won -- read it before using the code",
+            "also_found": {"shape": {"account": "…", "folder": "…", "uid": "…",
+                                     "from": "…", "date": "…", "shape": "6 digits"},
+                           "note": "the displaced messages, described without their codes"},
+            "code": "the only place a code ever appears; no error message quotes one",
+        },
         "search": {
             "note": "sibling of 'items' in message search/senders results",
             "fields": ["candidates", "scanned", "truncated", "reason", "limit", "folders"],

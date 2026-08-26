@@ -90,6 +90,25 @@ Check `search.truncated` in every step: `true` means the selection is incomplete
 bulk senders, but it is **not** proof of advertising: project boards and portals set the header
 on notifications that matter. Show the list, let the human decide.
 
+## Get a login code out of a fresh mail
+
+```bash
+# Trigger the login FIRST, then read. The default window is 10 minutes, so a stale
+# code from an earlier attempt cannot be picked up by mistake.
+pmb --json message otp --from voelkner.de --since 10m
+# → {"code": "867674", …, "ambiguous": false, "also_found": []}
+#
+# ambiguous: true means several messages in the window carried a candidate and the
+# newest won. Check `also_found` (uid/from/date/shape, never the code) and re-run
+# with a narrower --from before typing anything into a form.
+#
+# Exit 1 with "otp_not_found": nothing in the window -- widen --since, or the mail
+# went to a folder other than INBOX/Spam (--folder).
+# Exit 1 with "otp_ambiguous": the only candidates sat in a message that offers
+# several, so none of them can be trusted. Read it yourself:
+pmb --json message search --from voelkner.de --since 2026-08-26 --with-body --limit 1
+```
+
 ## List unread mails across all accounts
 
 ```bash

@@ -47,6 +47,35 @@ Operating rules (details in the skill):
 6. **Read `search.truncated`**: `--limit` bounds the matches, and a result that had to stop
    early says so instead of looking complete.
 
+## Login codes
+
+An agent logs into a shop, the shop mails a one-time code, a form wants it back:
+
+```bash
+pmb --json message otp --from voelkner.de --since 10m
+{"code": "867674", "from": "noreply@voelkner.de", "age_seconds": 411,
+ "folders": ["INBOX", "Spam"], "ambiguous": false, "also_found": [], …}
+```
+
+`--since` is a duration here (`10m`, `2h`, `1d`), not the ISO date the other commands take,
+and it defaults to ten minutes — a code from yesterday is not a code. Without `--folder` it
+reads INBOX and Spam. Plain output is the bare code on stdout, context on stderr, so
+`pmb message otp --from shop.de | xclip` is the whole story.
+
+**The code is in `code` and nowhere else.** No error message quotes one, and `also_found`
+names the messages the winner displaced by `uid`/`from`/`date` and their shape (`"6 digits"`)
+without their codes — a failed run can be logged or pasted safely. `ambiguous: true` means
+the window held more than one candidate and the newest won; read it before using the code,
+the way `search.truncated` is read, and narrow with `--from`.
+
+What it refuses matters more than what it finds. Mail is full of numbers that look like
+codes — postal codes and register numbers in the imprint, order numbers, an expiry
+timestamp, the sender's IP, a discount code — so a candidate only counts when a genuine code
+word stands next to it, a grouped code (`582 800`) must come out in equal groups, and digits
+beat letters. A message offering several candidates is never used: nothing in it says which
+one the form wants. Pure-letter codes are refused rather than guessed; fall back to
+`message search --with-body` for those.
+
 ## Cleaning up a mailbox
 
 ```bash
