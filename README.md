@@ -59,7 +59,9 @@ pmb --json message otp --from voelkner.de --since 10m
 
 `--since` is a duration here (`10m`, `2h`, `1d`), not the ISO date the other commands take,
 and it defaults to ten minutes — a code from yesterday is not a code. Without `--folder` it
-reads INBOX and Spam. Plain output is the bare code on stdout, context on stderr, so
+reads INBOX and Spam, and falls back to All Mail when neither holds a code — a mail filter
+can move a verification mail out of both, and All Mail is the one scope that cannot miss a
+folder. Plain output is the bare code on stdout, context on stderr, so
 `pmb message otp --from shop.de | xclip` is the whole story.
 
 **The code is in `code` and nowhere else.** No error message quotes one, and `also_found`

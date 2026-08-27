@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+- **`message otp` falls back to All Mail when INBOX and Spam hold no code.** Found on the
+  first real end-to-end run: a Proton filter had moved an Indeed login code into
+  `Folders/Indeed`, so the scan reported `Scanned 0 messages in INBOX, Spam` and the agent
+  was stuck — the mail existed, in a folder nobody had thought to name. All Mail is the one
+  scope that cannot miss a folder. It is scanned only when the near folders turn up nothing
+  usable, so the second scan is paid for on the path that was about to fail anyway, and the
+  results are deduplicated by Message-ID so anything the near scan found keeps its real,
+  writable folder. `folders` reports what was actually scanned. An explicit `--folder` stays
+  an instruction and is never widened.
+
 ## 0.7.0 (2026-08-26)
 - **`message otp` pulls the one-time verification code out of a freshly arrived mail.**
   An agent logging into a shop had to run `message search --from … --json`, read the hits

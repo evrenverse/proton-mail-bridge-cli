@@ -121,7 +121,9 @@ pmb --json message otp --from voelkner.de --since 10m
 
 - `--since` is a **duration** here (`10m`, `2h`, `1d`), not an ISO date — default `10m`,
   because a code from yesterday is not a code. Selection goes by message date.
-- Without `--folder` it reads INBOX **and** Spam.
+- Without `--folder` it reads INBOX **and** Spam, and falls back to All Mail when neither
+  holds a code — a mail filter can move a verification mail out of both. `folders` reports
+  what was actually scanned. An explicit `--folder` is never widened.
 - **Check `ambiguous` before using the code**, exactly like `search.truncated`. `true` means
   other messages in the window carried a candidate too and the newest one won; `also_found`
   names them by `uid`/`from`/`date` and their `shape` (`"6 digits"`) — **never their code**.
