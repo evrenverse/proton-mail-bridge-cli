@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 (2026-08-27)
 - **`message otp` falls back to All Mail when INBOX and Spam hold no code.** Found on the
   first real end-to-end run: a Proton filter had moved an Indeed login code into
   `Folders/Indeed`, so the scan reported `Scanned 0 messages in INBOX, Spam` and the agent
