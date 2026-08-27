@@ -173,3 +173,45 @@ def test_fan_out_covers_every_account(monkeypatch):
     # both accounts serve the same fake mailbox, so the second copy shows up as displaced
     assert data["code"] == "867674"
     assert {data["account"], *(e["account"] for e in data["also_found"])} == {"a@p.me", "b@p.me"}
+
+
+def test_a_filtered_away_mail_is_found_in_all_mail(monkeypatch):
+    """Measured against a real mailbox: a Proton filter had moved an Indeed login code
+    into `Folders/Indeed`, so INBOX and Spam held nothing at all. All Mail is the one
+    scope that cannot miss a folder, and it is scanned only when the other two fail."""
+    filtered = _mail("9", minutes_ago=1, text=CODE_MAIL, from_="login@indeed.com")
+    _patch(
+        monkeypatch,
+        {"INBOX": [], "Spam": [], "Folders/Indeed": [filtered], "All Mail": [filtered]},
+        folder_flags={"Spam": ("\\Junk",), "All Mail": ("\\All",)},
+    )
+    result = _run()
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["code"] == "867674"
+    assert data["folders"] == ["All Mail", "INBOX", "Spam"]  # reported sorted
+    assert data["folder"] == "All Mail"
+
+
+def test_all_mail_stays_unscanned_when_the_inbox_answers(monkeypatch):
+    """The fallback is paid for only on the path that was about to fail."""
+    _patch(
+        monkeypatch,
+        {"INBOX": [_mail("1", minutes_ago=1, text=CODE_MAIL)], "Spam": [], "All Mail": []},
+        folder_flags={"Spam": ("\\Junk",), "All Mail": ("\\All",)},
+    )
+    data = json.loads(_run().output)
+    assert data["code"] == "867674"
+    assert data["folders"] == ["INBOX", "Spam"]
+
+
+def test_an_explicit_folder_is_not_widened(monkeypatch):
+    """--folder is an instruction, not a starting point."""
+    _patch(
+        monkeypatch,
+        {"INBOX": [], "Spam": [], "All Mail": [_mail("1", minutes_ago=1, text=CODE_MAIL)]},
+        folder_flags={"Spam": ("\\Junk",), "All Mail": ("\\All",)},
+    )
+    result = _run("--folder", "INBOX")
+    assert result.exit_code == 1
+    assert json.loads(result.output)["error"]["type"] == "otp_not_found"

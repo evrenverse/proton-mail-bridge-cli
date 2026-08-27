@@ -106,7 +106,10 @@ without `--save` they already are the preview.
   - `--since` is a **duration** (`10m`, `2h`, `1d`; a bare number means minutes), not the
     ISO date the other commands take. Default `10m`, because a code from yesterday is not
     a code. Selection is by the message date, not by mailbox order
-  - without `--folder`: INBOX **and** Spam, since verification mail lands there often enough
+  - without `--folder`: INBOX **and** Spam, and All Mail as a fallback when those two
+    turn up no code — a mail filter can move a verification mail out of both, and All
+    Mail is the one scope that cannot miss a folder. `folders` says what was scanned.
+    An explicit `--folder` is an instruction and is never widened
   - `--from` (the shop's domain) is what turns an ambiguous window into an unambiguous one
   - **the code is returned in `code` and nowhere else.** It is in no error message, and
     `also_found` names the displaced messages without their codes — so a failure can be

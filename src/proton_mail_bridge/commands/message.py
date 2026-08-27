@@ -6,7 +6,7 @@ import click
 
 from proton_mail_bridge.core import config as cfgmod
 from proton_mail_bridge.core.config import resolve_accounts
-from proton_mail_bridge.core.imap import ImapClient, for_accounts
+from proton_mail_bridge.core.imap import ImapClient, dedup_by_message_id, for_accounts
 from proton_mail_bridge.utils import output as out_mod
 from proton_mail_bridge.utils import search as search_mod
 
@@ -313,8 +313,9 @@ def read_cmd(ctx, uid, folder, fmt, include_headers, mark_read) -> None:
               help="Sender filter, e.g. the shop's domain. The one option that turns an "
                    "ambiguous window into an unambiguous one.")
 @click.option("--folder", default=None,
-              help="Single folder. Without it: INBOX and Spam, because verification mail "
-                   "lands in Spam often enough to leave an agent stuck.")
+              help="Single folder. Without it: INBOX and Spam, and All Mail as a fallback "
+                   "when those two turn up no code -- a mail filter can move a "
+                   "verification mail out of both.")
 @click.pass_context
 def otp_cmd(ctx, since, from_, folder) -> None:
     """The newest one-time verification code from a freshly arrived message.
@@ -352,23 +353,52 @@ def otp_cmd(ctx, since, from_, folder) -> None:
         # its own -- the server-side criterion above only keeps the scan small.
         return not from_ or from_.lower() in str(rec.get("from", "")).lower()
 
+    def scan(client, folders: list[str]) -> tuple[list[dict], int]:
+        recs: list[dict] = []
+        scanned = 0
+        for f in folders:
+            # headers-only scan (scan_needs_body=False) decides freshness; only the
+            # few survivors are fetched with a body
+            found, stats = client.search(crit, folder=f, limit=None, with_body=True,
+                                         with_attachments=False, keep=keep,
+                                         scan_needs_body=False)
+            scanned += stats["scanned"]
+            recs.extend(found)
+        return recs, scanned
+
     def fn(account):
         with ImapClient.connect(cfg.endpoint, account) as c:
-            folders = [folder] if folder else _otp_folders(c)
-            recs: list[dict] = []
-            scanned = 0
-            for f in folders:
-                # headers-only scan (scan_needs_body=False) decides freshness; only the
-                # few survivors are fetched with a body
-                found, stats = c.search(crit, folder=f, limit=None, with_body=True,
-                                        with_attachments=False, keep=keep,
-                                        scan_needs_body=False)
-                scanned += stats["scanned"]
-                recs.extend(found)
-            return recs, {"scanned": scanned, "folders": folders}
+            if folder:  # an explicit folder is an instruction, not a starting point
+                recs, scanned = scan(c, [folder])
+                return recs, {"scanned": scanned, "folders": [folder]}
+            near = _otp_folders(c)
+            recs, scanned = scan(c, near)
+            if _has_usable_code(recs):
+                return recs, {"scanned": scanned, "folders": near}
+            # A mail filter can move verification mail out of INBOX and Spam entirely.
+            # Measured against a real mailbox: a Proton filter had put an Indeed login
+            # code in `Folders/Indeed`, and the near scan reported nothing at all. All
+            # Mail is the one scope that cannot miss a folder, and it is only paid for on
+            # the path that was about to fail anyway. Deduplicating keeps the real folder
+            # of anything the near scan already found -- All Mail cannot be written to.
+            wide = [c.resolve_folder(None, "all")]
+            far, far_scanned = scan(c, wide)
+            return (dedup_by_message_id(recs + far),
+                    {"scanned": scanned + far_scanned, "folders": near + wide})
 
     results = for_accounts(accounts, fn)
     _emit_otp(results, since=since, now=now)
+
+
+def _has_usable_code(records: list[dict]) -> bool:
+    """Whether any of these messages yields exactly one code -- the only kind that can be
+    used. A message offering several is not a reason to stop looking elsewhere."""
+    from proton_mail_bridge.utils import otp as otp_mod
+
+    return any(
+        len(otp_mod.extract(r.get("subject"), r.get("body_text"), r.get("body_html"))) == 1
+        for r in records
+    )
 
 
 def _otp_folders(client) -> list[str]:
