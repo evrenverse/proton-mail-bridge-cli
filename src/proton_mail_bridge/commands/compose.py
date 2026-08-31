@@ -20,14 +20,17 @@ def compose_group() -> None:
     """Compose and send mail."""
 
 
+FORWARD_MARK = "---------- Forwarded message ----------"
+
+
 def _csv(value: str | None) -> list[str]:
     return [x.strip() for x in value.split(",") if x.strip()] if value else []
 
 
-def _signature(ident, no_signature: bool) -> tuple[str | None, str | None]:
-    """(text, html) signature to append. Reads the files early: a broken path must fail
-    before the message goes out, and must show up in `--dry-run`."""
-    return (None, None) if no_signature else sig_mod.load(ident)
+def _signature(ident, no_signature: bool) -> tuple[str | None, str | None, list]:
+    """(text, html, images) signature to append. Reads the files early: a broken path must
+    fail before the message goes out, and must show up in `--dry-run`."""
+    return (None, None, []) if no_signature else sig_mod.load(ident)
 
 
 def _fetch_original(client, uid: str, folder: str, account_email: str) -> dict:
@@ -79,11 +82,11 @@ def send_cmd(
         from pathlib import Path
 
         html = Path(html_file).read_text(encoding="utf-8")
-    sig_text, sig_html = _signature(ident, no_signature)
+    sig_text, sig_html, sig_images = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=_csv(to), cc=_csv(cc), bcc=_csv(bcc), subject=subject,
         body_text=_body(body, body_file), body_html=html, attachments=list(attach),
-        signature=sig_text, signature_html=sig_html,
+        signature=sig_text, signature_html=sig_html, signature_images=sig_images,
     )
     if dry_run:
         out_mod.out_plan("compose send", {
@@ -138,13 +141,13 @@ def reply_cmd(
         recipients += [a for a in original["to"]
                        if a.lower() not in mine and a != original["from"]]
         cc_list = [a for a in original["cc"] if a.lower() not in mine]
-    sig_text, sig_html = _signature(ident, no_signature)
+    sig_text, sig_html, sig_images = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=recipients, cc=cc_list or None, bcc=None,
         subject="Re: " + base_subject, body_text=_body(body, body_file),
         body_html=None, attachments=list(attach),
         in_reply_to=original["message_id"], references=[original["message_id"]],
-        signature=sig_text, signature_html=sig_html,
+        signature=sig_text, signature_html=sig_html, signature_images=sig_images,
     )
     if dry_run:
         out_mod.out_plan("compose reply", {
@@ -187,17 +190,20 @@ def forward_cmd(ctx, uid, folder, to, body, identity, no_signature, dry_run, ass
             (a.filename, a.payload, a.content_type) for a in c.attachments(uid, folder=folder)
         ]
     ident = chosen if identity else pick_reply_identity(account, original)
-    sig_text, _ = _signature(ident, no_signature)
-    # The signature belongs under the forwarder's own words, not under the quoted mail.
+    sig_text, sig_html, sig_images = _signature(ident, no_signature)
+    # The signature belongs under the forwarder's own words, not under the quoted mail —
+    # so both bodies are assembled here and handed over finished.
+    quoted = original.get("body_text") or ""
     own = sig_mod.append_text(body or "", sig_text) if sig_text else (body or "")
-    fwd_body = (
-        own
-        + "\n\n---------- Forwarded message ----------\n"
-        + (original.get("body_text") or "")
-    )
+    fwd_body = f"{own}\n\n{FORWARD_MARK}\n{quoted}"
+    fwd_html = None
+    if sig_html:  # a logo travels as markup only, so the HTML part has to exist for it
+        own_html = sig_mod.append_html(mime.as_html(body or ""), sig_html)
+        fwd_html = f"{own_html}\n<br>\n{FORWARD_MARK}<br>\n{mime.as_html(quoted)}"
     msg = mime.build_message(
         sender=ident.formatted(), to=_csv(to), cc=None, bcc=None,
-        subject="Fwd: " + original["subject"], body_text=fwd_body, body_html=None, attachments=atts,
+        subject="Fwd: " + original["subject"], body_text=fwd_body, body_html=fwd_html,
+        attachments=atts, signature_images=sig_images,
     )
     if dry_run:
         out_mod.out_plan("compose forward", {
@@ -236,11 +242,11 @@ def draft_cmd(
 
     cfg = cfgmod.resolve_config()
     account, ident = resolve_identity(cfg, identity, ctx.obj.get("account"))
-    sig_text, sig_html = _signature(ident, no_signature)
+    sig_text, sig_html, sig_images = _signature(ident, no_signature)
     msg = mime.build_message(
         sender=ident.formatted(), to=_csv(to), cc=None, bcc=None, subject=subject,
         body_text=_body(body, body_file), body_html=None, attachments=list(attach),
-        signature=sig_text, signature_html=sig_html,
+        signature=sig_text, signature_html=sig_html, signature_images=sig_images,
     )
     with ImapClient.connect(cfg.endpoint, account) as c:
         target = folder or c.special_folders().get("drafts", "Drafts")

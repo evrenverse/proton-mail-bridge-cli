@@ -40,7 +40,8 @@ without `--save` they already are the preview.
   folder for sender addresses; fans out over all accounts without `--account`
 - `pmb --json --account A account identity signature import [--identity E --dir D --scan N --save --yes]`
   — reads back through Sent (default 25 messages) for one a Proton composer sent, and writes
-  its signature to `<label>.sig` / `<label>.sig.html` next to `config.toml`. Only Proton's
+  its signature to `<label>.sig` / `<label>.sig.html` next to `config.toml`, plus every
+  embedded image as `<label>.sig.<n>.<ext>` with the `cid:` repointed at it. Only Proton's
   `protonmail_signature_block` counts — an address without a configured signature reports
   `No signature found` rather than guessing. Without `--save` it only prints what it found;
   `--yes` is needed to overwrite existing files.

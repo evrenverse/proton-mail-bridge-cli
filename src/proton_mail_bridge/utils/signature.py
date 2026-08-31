@@ -8,6 +8,8 @@ from the config, and `extract` can lift it out of a message Proton itself has se
 
 from __future__ import annotations
 
+import mimetypes
+import re
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -19,6 +21,7 @@ SEPARATOR = "-- "  # RFC 3676 §4.3 signature delimiter
 BLOCK = "protonmail_signature_block"
 USER_BLOCK = f"{BLOCK}-user"  # excludes Proton's own "Sent with Proton Mail" footer
 _BREAKS = ("br", "div", "p", "tr", "li")
+_CID = re.compile(r"""src=(["'])cid:([^"']*)\1""", re.IGNORECASE)
 
 
 def append_text(body: str, sig: str) -> str:
@@ -30,9 +33,71 @@ def append_html(body_html: str, sig_html: str) -> str:
     return f"{body_html}\n<br>\n{sig_html}"
 
 
-def load(ident: Identity, base: Path | None = None) -> tuple[str | None, str | None]:
-    """(text, html) signature of an identity; each None when no file is configured."""
-    return _read(ident.signature_file, base), _read(ident.signature_html_file, base)
+def load(
+    ident: Identity, base: Path | None = None
+) -> tuple[str | None, str | None, list[tuple[str, bytes, str]]]:
+    """(text, html, images) signature of an identity; the files are read right here.
+
+    `images` are the inline parts the HTML references by `cid:` — a logo only reaches the
+    recipient when the message actually carries it.
+    """
+    html = _read(ident.signature_html_file, base)
+    return _read(ident.signature_file, base), html, images(html, ident, base)
+
+
+def images(
+    html: str | None, ident: Identity, base: Path | None = None
+) -> list[tuple[str, bytes, str]]:
+    """(cid, data, content type) per `cid:` reference of the HTML signature.
+
+    The cid *is* the file name, and the files sit next to the HTML: `import --save`
+    rewrites Proton's own ids to what it wrote, so the config needs no third path.
+    """
+    if not html or not ident.signature_html_file:
+        return []
+    folder = resolve_path(ident.signature_html_file, base).parent
+    out: list[tuple[str, bytes, str]] = []
+    for cid in dict.fromkeys(m.group(2) for m in _CID.finditer(html)):
+        path = folder / cid
+        if Path(cid).name != cid or not path.is_file():
+            # A dangling cid is an invisible logo — the exact failure this file exists for.
+            raise BridgeError(
+                "config",
+                "Signature image missing",
+                f"{ident.signature_html_file} references cid:{cid}, but no such file sits "
+                f"in {folder}. Re-run `account identity signature import --save` to write "
+                "the images, or send with --no-signature.",
+            )
+        ctype = mimetypes.guess_type(cid)[0] or "application/octet-stream"
+        out.append((cid, path.read_bytes(), ctype))
+    return out
+
+
+def embed(
+    sig_html: str, parts: dict[str, tuple[bytes, str | None, str | None]], stem: str
+) -> tuple[str, dict[str, bytes]]:
+    """Repoint the signature at local copies: (rewritten HTML, {file name: bytes}).
+
+    `parts` maps the source message's Content-IDs to (payload, filename, content type).
+    A reference the message does not carry — a remote URL, an already-local name — is
+    left alone.
+    """
+    files: dict[str, bytes] = {}
+    names: dict[str, str] = {}
+
+    def repl(match: re.Match) -> str:
+        cid = match.group(2)
+        part = parts.get(cid)
+        if not part:
+            return match.group(0)
+        if cid not in names:
+            data, filename, ctype = part
+            ext = Path(filename or "").suffix or mimetypes.guess_extension(ctype or "") or ".png"
+            names[cid] = f"{stem}.sig.{len(names)}{ext}"
+            files[names[cid]] = data
+        return f'src="cid:{names[cid]}"'
+
+    return _CID.sub(repl, sig_html), files
 
 
 def _read(value: str | None, base: Path | None) -> str | None:

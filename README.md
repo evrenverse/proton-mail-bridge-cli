@@ -134,7 +134,9 @@ pmb --json account identity signature import --identity kontakt --save  # write 
 `import` reads back through the Sent folder (`--scan`, 25 messages by default) until it finds
 one that a Proton composer sent — mail sent through this CLI carries no signature and is
 exactly what sits at the top of Sent. It then writes `kontakt.sig` (plus `kontakt.sig.html`)
-next to `config.toml` and points the identity at them. Only Proton's own
+next to `config.toml` and points the identity at them. An embedded logo is written along with
+them as `kontakt.sig.0.png`, and the `cid:` in the HTML is repointed at that file — the cid
+*is* the file name, so no third config entry is needed. Only Proton's own
 `protonmail_signature_block` counts; when an address has no signature configured, Proton
 marks the block empty and the command says so instead of guessing. Writing the files by hand
 works just as well:
@@ -146,9 +148,12 @@ identities = [
 ]
 ```
 
-Relative paths resolve against the config directory. Every `compose` command appends the
-signature of the sending identity; `--no-signature` sends without it, and the HTML signature
-is used only when the mail actually has an HTML part (`--html-file`).
+Relative paths resolve against the config directory, and images sit next to the HTML file.
+Every `compose` command appends the signature of the sending identity; `--no-signature` sends
+without it. An HTML signature adds an HTML part to a plain-text mail as well — a logo only
+travels as markup — and every image it references is attached inline, so it renders instead
+of leaving a hole. A `cid:` without a file next to the HTML is a hard error rather than a
+silently broken image.
 
 ## WSL → Windows bridge
 

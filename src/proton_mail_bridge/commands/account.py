@@ -409,6 +409,17 @@ def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -
             with_body=True, with_attachments=False, scan_needs_body=True, max_fetch=scan,
             keep=lambda r: any(sig_mod.extract(r.get("body_html"))),
         )
+        text_sig, html_sig = (
+            sig_mod.extract(records[0].get("body_html")) if records else (None, None)
+        )
+        # A logo lives in the message as an inline part the signature points at by `cid:`;
+        # left behind, it would render as a hole in every mail this CLI sends.
+        embedded = {
+            (a.content_id or "").strip("<>"): (a.payload, a.filename, a.content_type)
+            for a in (c.attachments(records[0]["uid"], folder=folder)
+                      if html_sig and "cid:" in html_sig.lower() else [])
+            if a.content_id
+        }
     if not records:
         if not stats["candidates"]:
             out_mod.out_err("not_found", "No sent message from this identity",
@@ -422,20 +433,24 @@ def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -
             + "Proton marks an unset signature as empty, so this address may have none — "
             "then write the file by hand and set signature_file.",
         )
-    rec = records[0]
-    text_sig, html_sig = sig_mod.extract(rec.get("body_html"))
+    stem = ident.label or ident.email.split("@")[0]
+    images: dict[str, bytes] = {}
+    if html_sig and embedded:
+        # The cid becomes the file name — that is all `compose` needs to find the image.
+        html_sig, images = sig_mod.embed(html_sig, embedded, stem)
     found = {"identity": ident.email, "account": account.email, "folder": folder,
-             "source_uid": rec["uid"], "signature": text_sig, "signature_html": html_sig}
+             "source_uid": records[0]["uid"], "signature": text_sig,
+             "signature_html": html_sig, "images": sorted(images)}
     if not do_save:
         out_mod.out({**found, "saved": None,
                      "hint": "Check the text above, then repeat with --save."})
         return
 
     base = Path(target_dir).expanduser() if target_dir else path.parent
-    stem = ident.label or ident.email.split("@")[0]
     targets = {"signature_file": (base / f"{stem}.sig", text_sig),
                "signature_html_file": (base / f"{stem}.sig.html", html_sig)}
     clobbered = [str(p) for p, content in targets.values() if content and p.exists()]
+    clobbered += [str(base / n) for n in sorted(images) if (base / n).exists()]
     if clobbered:
         guard.enforce(f"overwrite {', '.join(clobbered)}", guard.CONFIRM,
                       assume_yes=assume_yes)
@@ -443,6 +458,8 @@ def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -
     if not any(i is ident for i in account.identities):
         account.identities.append(ident)
     base.mkdir(parents=True, exist_ok=True)
+    for name, data in images.items():
+        (base / name).write_bytes(data)
     saved: dict[str, str] = {}
     for field, (target, content) in targets.items():
         if not content:

@@ -68,15 +68,41 @@ def test_html_signature_lands_in_the_html_part():
     assert "-- \nEvren" in text
 
 
-def test_html_signature_alone_never_forces_an_html_part():
-    """--html-file is the exception; a text-only send must stay text-only."""
+def test_an_html_signature_adds_the_html_part_to_a_plain_send():
+    """A logo only travels as markup, so the HTML signature must not wait for --html-file
+    — otherwise every mail this CLI generates from plain text loses it."""
+    msg = mime.build_message(
+        sender="me@p.me", to=["a@x.de"], cc=None, bcc=None, subject="S",
+        body_text="Hallo & tschüss\nbis morgen", body_html=None, attachments=None,
+        signature="Evren", signature_html="<b>Evren</b>",
+    )
+    html = msg.get_body(preferencelist=("html",)).get_content()
+    assert "Hallo &amp; tschüss<br>\nbis morgen" in html   # the body is escaped, not markup
+    assert "<b>Evren</b>" in html
+    text = msg.get_body(preferencelist=("plain",)).get_content()
+    assert text == "Hallo & tschüss\nbis morgen\n\n-- \nEvren\n"
+
+
+def test_without_an_html_signature_a_plain_send_stays_plain():
+    msg = mime.build_message(
+        sender="me@p.me", to=["a@x.de"], cc=None, bcc=None, subject="S",
+        body_text="Hallo", body_html=None, attachments=None, signature="Evren",
+    )
+    assert not msg.is_multipart()
+
+
+def test_a_signature_image_travels_as_an_inline_part():
+    """The `cid:` in the signature has to resolve inside the message we send — a
+    reference to the image of the *source* mail is exactly the invisible logo."""
     msg = mime.build_message(
         sender="me@p.me", to=["a@x.de"], cc=None, bcc=None, subject="S",
         body_text="Hallo", body_html=None, attachments=None,
-        signature="Evren", signature_html="<b>Evren</b>",
+        signature="Evren", signature_html='<img src="cid:k.sig.0.png">',
+        signature_images=[("k.sig.0.png", b"\x89PNG", "image/png")],
     )
-    assert not msg.is_multipart()
-    assert msg.get_content() == "Hallo\n\n-- \nEvren\n"
+    parts = {p.get("Content-ID"): p.get_content_type() for p in msg.walk()}
+    assert parts["<k.sig.0.png>"] == "image/png"
+    assert 'src="cid:k.sig.0.png"' in msg.get_body(preferencelist=("html",)).get_content()
 
 
 # --- loading --------------------------------------------------------------------
@@ -86,11 +112,11 @@ def test_load_reads_both_files(tmp_path):
     (tmp_path / "k.sig").write_text("Evren\nCEO", encoding="utf-8")
     (tmp_path / "k.html").write_text("<b>Evren</b>", encoding="utf-8")
     ident = Identity("k@p.me", signature_file="k.sig", signature_html_file="k.html")
-    assert signature.load(ident, base=tmp_path) == ("Evren\nCEO", "<b>Evren</b>")
+    assert signature.load(ident, base=tmp_path) == ("Evren\nCEO", "<b>Evren</b>", [])
 
 
 def test_load_without_configured_files_is_no_signature():
-    assert signature.load(Identity("k@p.me")) == (None, None)
+    assert signature.load(Identity("k@p.me")) == (None, None, [])
 
 
 def test_load_missing_file_is_a_hard_error(tmp_path):
@@ -107,6 +133,43 @@ def test_load_expands_the_home_shortcut(tmp_path, monkeypatch):
     (tmp_path / "k.sig").write_text("Evren", encoding="utf-8")
     ident = Identity("k@p.me", signature_file="~/k.sig")
     assert signature.load(ident, base=tmp_path / "elsewhere")[0] == "Evren"
+
+
+def test_load_picks_up_the_image_the_signature_references(tmp_path):
+    """The cid is the file name — that is the whole link between config and logo."""
+    (tmp_path / "k.html").write_text('<img src="cid:k.sig.0.png">', encoding="utf-8")
+    (tmp_path / "k.sig.0.png").write_bytes(b"\x89PNG")
+    ident = Identity("k@p.me", signature_html_file="k.html")
+    assert signature.load(ident, base=tmp_path)[2] == [("k.sig.0.png", b"\x89PNG", "image/png")]
+
+
+def test_a_dangling_image_reference_is_a_hard_error(tmp_path):
+    """Sending a signature whose logo renders as a hole is the bug this guards."""
+    (tmp_path / "k.html").write_text('<img src="cid:580bd272@yell.services">', encoding="utf-8")
+    ident = Identity("k@p.me", signature_html_file="k.html")
+    with pytest.raises(BridgeError) as excinfo:
+        signature.load(ident, base=tmp_path)
+    assert "580bd272@yell.services" in excinfo.value.detail
+
+
+def test_an_image_reference_never_escapes_the_signature_directory(tmp_path):
+    (tmp_path / "k.html").write_text('<img src="cid:../../etc/passwd">', encoding="utf-8")
+    ident = Identity("k@p.me", signature_html_file="k.html")
+    with pytest.raises(BridgeError):
+        signature.load(ident, base=tmp_path)
+
+
+def test_embed_rewrites_protons_cids_to_local_files():
+    html = '<img src="cid:580bd272@yell.services"><img src="cid:580bd272@yell.services">'
+    parts = {"580bd272@yell.services": (b"\x89PNG", "logo.png", "image/png")}
+    out, files = signature.embed(html, parts, "kontakt")
+    assert out == '<img src="cid:kontakt.sig.0.png"><img src="cid:kontakt.sig.0.png">'
+    assert files == {"kontakt.sig.0.png": b"\x89PNG"}
+
+
+def test_embed_leaves_a_reference_the_message_does_not_carry():
+    html = '<img src="cid:foreign@x.de"><img src="https://x.de/logo.png">'
+    assert signature.embed(html, {}, "kontakt") == (html, {})
 
 
 # --- extracting from a sent message ---------------------------------------------
@@ -170,13 +233,19 @@ def test_extract_finds_nothing_rather_than_guessing():
 # --- the send path ---------------------------------------------------------------
 
 
-def _patch(monkeypatch, sent, tmp_path):
+def _patch(monkeypatch, sent, tmp_path, with_logo=False):
     (tmp_path / "k.sig").write_text("Evren\nCEO", encoding="utf-8")
+    html_file = None
+    if with_logo:
+        (tmp_path / "k.sig.html").write_text('Evren<img src="cid:k.sig.0.png">', encoding="utf-8")
+        (tmp_path / "k.sig.0.png").write_bytes(b"\x89PNG")
+        html_file = str(tmp_path / "k.sig.html")
     config = Config(
         Endpoint(),
         [Account("me@p.me", "pw", identities=[
             Identity("kontakt@p.me", name="Kontakt", label="kontakt",
-                     signature_file=str(tmp_path / "k.sig")),
+                     signature_file=str(tmp_path / "k.sig"),
+                     signature_html_file=html_file),
         ])],
         "me@p.me",
     )
@@ -246,6 +315,25 @@ def test_reply_signs_with_the_answering_identity(monkeypatch, tmp_path):
     result = CliRunner().invoke(main, ["compose", "reply", "--uid", "1", "--body", "ok", "--yes"])
     assert result.exit_code == 0
     assert sent[0].get_content() == "ok\n\n-- \nEvren\nCEO\n"
+
+
+def test_forward_carries_the_logo_above_the_quoted_mail(monkeypatch, tmp_path):
+    """`forward` assembles its own body, so it used to miss the HTML signature entirely —
+    the logo has to sit under the forwarder's own words, not under the quoted message."""
+    from proton_mail_bridge.core.imap import ImapClient
+    from tests.conftest import FakeMailBox
+    sent = []
+    _patch(monkeypatch, sent, tmp_path, with_logo=True)
+    monkeypatch.setattr(
+        ImapClient, "connect",
+        classmethod(lambda cls, ep, acc, **k: ImapClient(FakeMailBox(), acc.email)),
+    )
+    result = CliRunner().invoke(main, ["compose", "forward", "--uid", "1", "--to", "x@y.de",
+                                       "--body", "FYI", "--identity", "kontakt", "--yes"])
+    assert result.exit_code == 0
+    html = sent[0].get_body(preferencelist=("html",)).get_content()
+    assert html.index('<img src="cid:k.sig.0.png">') < html.index("Forwarded message")
+    assert "<k.sig.0.png>" in [p.get("Content-ID") for p in sent[0].walk()]
 
 
 def test_draft_carries_the_signature(monkeypatch, tmp_path):

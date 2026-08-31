@@ -3,9 +3,16 @@ from __future__ import annotations
 import mimetypes
 from email.message import EmailMessage
 from email.utils import make_msgid
+from html import escape
 from pathlib import Path
+from typing import cast
 
 from proton_mail_bridge.utils import signature as sig_mod
+
+
+def as_html(text: str) -> str:
+    """Plain text as an HTML fragment — escaped, so markup in a body stays text."""
+    return escape(text).replace("\n", "<br>\n")
 
 
 def build_message(
@@ -22,6 +29,7 @@ def build_message(
     references: list[str] | None = None,
     signature: str | None = None,
     signature_html: str | None = None,
+    signature_images: list[tuple[str, bytes, str]] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = sender
@@ -43,11 +51,19 @@ def build_message(
     if signature:
         text = sig_mod.append_text(text, signature)
     msg.set_content(text)
-    if body_html:
-        # A signature-only HTML part would turn every plain send into multipart.
+    if body_html or signature_html:
+        # An HTML signature is reason enough for the alternative part: a logo travels as
+        # markup, so without it the configured signature would never reach the recipient.
+        html = body_html or as_html(body_text or "")
         if signature_html:
-            body_html = sig_mod.append_html(body_html, signature_html)
-        msg.add_alternative(body_html, subtype="html")
+            html = sig_mod.append_html(html, signature_html)
+        msg.add_alternative(html, subtype="html")
+        related = cast("list[EmailMessage]", msg.get_payload())[-1]
+        for cid, image, image_type in signature_images or []:
+            maintype, _, subtype = image_type.partition("/")
+            # Inline part per `cid:` in the signature — otherwise the client shows a gap.
+            related.add_related(image, maintype=maintype, subtype=subtype, cid=f"<{cid}>",
+                                filename=cid, disposition="inline")
 
     for att in attachments or []:
         if isinstance(att, (tuple, list)):

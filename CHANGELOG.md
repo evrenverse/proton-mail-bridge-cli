@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.2 (2026-08-31)
+- **The logo in an imported signature now actually arrives.** Reported from the field: mail
+  generated through the CLI kept showing the signature without its logo. Two things had to
+  be true for that, and both were:
+  - The HTML signature was only used when the mail already had an HTML part, i.e. only with
+    `compose send --html-file`. Everything an agent generates is plain text, so the HTML
+    signature — the only place a logo can live — was silently dropped by `send`, `reply` and
+    `draft` alike. An HTML signature now adds the alternative part itself, with the plain
+    body escaped into it; without one, a plain send stays plain.
+  - Proton's signature references its logo as `cid:…`, pointing at an inline part of the
+    *source* message. `signature import` copied the markup but not the image, so the
+    reference dangled and every client drew a hole. The import now writes the image next to
+    the signature as `<label>.sig.<n>.<ext>` and repoints the `cid:` at that file — the cid
+    *is* the file name, so the config needs no third path — and `compose` attaches it as an
+    inline part. A `cid:` with no file next to the HTML is now a hard error naming the file:
+    sending a signature with a visible hole is the failure this exists to prevent. A
+    signature imported before this version still carries Proton's own cid — re-run
+    `account identity signature import --save` once.
+  - `compose forward` assembles its own body — the signature belongs above the quoted mail,
+    not below it — and therefore never saw an HTML signature at all. It now builds the HTML
+    part the same way, with the signature under the forwarder's own words and the quoted
+    message escaped beneath it.
+
 ## 0.7.1 (2026-08-27)
 - **`message otp` falls back to All Mail when INBOX and Spam hold no code.** Found on the
   first real end-to-end run: a Proton filter had moved an Indeed login code into

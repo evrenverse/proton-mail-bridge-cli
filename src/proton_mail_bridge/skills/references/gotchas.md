@@ -80,7 +80,10 @@ sending identity a `signature_file` (`account identity signature import --save` 
 from a message Proton itself sent). Never tell a human "Proton will add it" — it will not.
 
 `--no-signature` suppresses it per command, `--dry-run` reports the file under `signature`.
-The HTML signature is only used when the mail actually has an HTML part.
+An HTML signature also adds an HTML part to a plain-text send — a logo cannot travel as text —
+and the images it references by `cid:` are attached inline. Those files live next to the HTML
+file and are named by their cid; if one is missing, `compose` refuses rather than sending a
+signature with a hole where the logo should be. Re-run `signature import --save` to write them.
 
 `signature import` only accepts Proton's own `protonmail_signature_block`. Do **not** try to
 recover a signature by cutting a mail body at the last `-- ` line: in real mail that
