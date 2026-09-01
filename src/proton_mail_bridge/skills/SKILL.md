@@ -160,6 +160,14 @@ pmb --json message otp --from voelkner.de --since 10m
 
 ## Gotchas
 
+- **A server-side criterion is not a cheap one, and `--since` does not make it cheaper.**
+  The Bridge keeps no index, so `SEARCH` walks the folder. Measured against a real
+  mailbox: `--from` over All Mail took 9.6-20.3s, and the same search bounded to
+  `--since` — 34 matches instead of 999 — took 10.5-10.7s, unchanged. What pays is a
+  smaller scope: `--folder INBOX` took 3.6-5.2s. So reach for `--folder` when one
+  folder answers the question, budget ~10s for an All Mail search, and never leave an
+  unbounded one inside a loop that runs per message. `--since` still pays for
+  client-side criteria below, where it bounds what gets fetched rather than scanned.
 - **Body/text search** is filtered client-side (Gluon IMAP quirks) — narrow large mailboxes
   with `--folder`/`--since`. Client-side criteria scan the scope until the limit is reached,
   so on a 30k mailbox a `--text` search is slow by nature; `--max-fetch N` caps it and says

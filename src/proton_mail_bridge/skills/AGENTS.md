@@ -21,6 +21,9 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
   original was sent to.
 - **Search folder-smart**: no `--folder` → `All Mail`; "sent" → `--folder Sent`;
   "received" → `--folder INBOX`. Names are localized → `pmb --json account info` shows the map.
+- **Search costs ~10s per All Mail scan**, server-side criteria included: the Bridge has no
+  index. `--since` does not reduce it (measured: unchanged at 34 matches vs 999), `--folder`
+  does (INBOX 3.6-5.2s vs All Mail 9.6-20.3s). Scope by folder; never loop an unbounded search.
 - **`--limit` bounds the matches**, not the fetch: a client-side criterion (`--text`,
   `--header`, `--has-attachments`, `--list-unsubscribe`, umlauts) keeps reading until the
   limit is met or the scope is exhausted. Every result carries a `search` block
