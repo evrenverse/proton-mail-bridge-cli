@@ -91,7 +91,8 @@ def enforce(
     if not isatty():
         _abort(
             label, risk, "blocked_no_tty",
-            f"🟡 {label}: needs confirmation. Pass --yes to approve deliberately.",
+            f"🟡 {label}: needs confirmation from the user; with their approval,"
+            " rerun with --yes.",
         )
     confirmer = confirmer or (lambda p: input(p).strip().lower() in ("y", "j", "yes", "ja"))
     if confirmer(f"🟡 Run {label}? [y/N] "):

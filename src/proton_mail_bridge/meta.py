@@ -30,8 +30,10 @@ _FIELDS = {
             "code": "the only place a code ever appears; no error message quotes one",
         },
         "search": {
-            "note": "sibling of 'items' in message search/senders results",
-            "fields": ["candidates", "scanned", "truncated", "reason", "limit", "folders"],
+            "note": "sibling of 'items' in message search results; message senders "
+                    "carries its counters under 'senders' instead",
+            "fields": ["candidates", "scanned", "truncated", "reason", "limit", "folders",
+                       "skipped_folders"],
             "truncated": "the answer is incomplete; reason is 'limit' or 'fetch_budget'",
         },
     },

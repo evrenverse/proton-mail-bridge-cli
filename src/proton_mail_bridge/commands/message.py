@@ -145,7 +145,8 @@ def list_cmd(ctx, folder, limit, offset, unread, since) -> None:
 @click.option("--ids-only", "ids_only", is_flag=True,
               help="Only account/folder/uid/message_id per hit (for follow-up ops).")
 @click.option("--count-only", "count_only", is_flag=True,
-              help="Count only — server-side, no message fetch; ignores --limit.")
+              help="Exact count; ignores --limit. Server-side criteria count without a "
+                   "fetch; a client-side one is scanned and reports scanned/truncated.")
 @click.option("--limit", type=int, default=50,
               help="Maximum number of MATCHES (0 = all). Client-side filters keep reading "
                    "until this many hits are found or the scope is exhausted.")
@@ -669,7 +670,7 @@ def mark_cmd(ctx, uid, read, folder, dry_run) -> None:
 @out_mod.dry_run_option
 @click.pass_context
 def delete_cmd(ctx, uid, folder, expunge, assume_yes, log_path, dry_run) -> None:
-    """Delete: without --expunge → Trash 🟡; --expunge / from Trash / bulk ≥ 20 → permanent 🔴."""
+    """Delete → Trash 🟡 (🔴 from 20 on); --expunge / from Trash → permanent 🔴."""
     from proton_mail_bridge.core import guard
 
     cfg, account = _resolve_one(ctx)

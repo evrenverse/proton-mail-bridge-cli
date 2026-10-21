@@ -102,8 +102,8 @@ pmb --json message otp --from voelkner.de --since 10m
 # newest won. Check `also_found` (uid/from/date/shape, never the code) and re-run
 # with a narrower --from before typing anything into a form.
 #
-# Exit 1 with "otp_not_found": nothing in the window -- widen --since, or the mail
-# went to a folder other than INBOX/Spam (--folder).
+# Exit 1 with "otp_not_found": nothing in the window, not even in All Mail (the
+# fallback after INBOX/Spam) -- widen --since or drop --from.
 # Exit 1 with "otp_ambiguous": the only candidates sat in a message that offers
 # several, so none of them can be trusted. Read it yourself:
 pmb --json message search --from voelkner.de --since 2026-08-26 --with-body --limit 1

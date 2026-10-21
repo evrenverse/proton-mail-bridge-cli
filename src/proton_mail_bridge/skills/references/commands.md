@@ -70,7 +70,7 @@ without `--save` they already are the preview.
   - `--limit` bounds the **matches** (0 = all). Criteria the server cannot decide (`--text`,
     `--header`, `--has-attachments`, `--attachment-name`, `--attachment-text`,
     `--list-unsubscribe`, non-ASCII values) are filtered while the search pages through the
-    scope, so the hit count no longer depends on the limit
+    scope until it has `--limit` hits or the scope is exhausted
   - `--max-fetch N`: stop the client-side scan after N fetched messages (0 = no budget)
   - every result carries a `search` block next to `items`: `candidates` (server-side matches in
     scope), `scanned`, `truncated`, `reason` (`limit`/`fetch_budget`), `limit`, `folders`,
@@ -124,7 +124,8 @@ without `--save` they already are the preview.
   - not everything is extractable: a pure-letter code (some senders use `BSDTKC`) is
     refused rather than guessed. Fall back to `message search --with-body`
 - `pmb --json message read --uid 1,2,3 [--folder F --format text|html|both|raw --include-headers]`
-- `pmb --json message raw --uid U [--folder F --output PATH]`
+- `pmb --json message raw --uid U [--folder F --output PATH]` — `--output` overwrites PATH
+  and has no `--dry-run`
 - `pmb --json --account A message move --uid U --to DEST [--folder F --yes --dry-run]` 🟡
 - `pmb --json --account A message copy --uid U --to DEST [--folder F --dry-run]`
 - `pmb --json --account A message flag --uid U [--add F --remove F --folder F --yes --dry-run]`

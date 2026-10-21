@@ -24,6 +24,7 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
 - **Search costs ~10s per All Mail scan**, server-side criteria included: the Bridge has no
   index. `--since` does not reduce it (measured: unchanged at 34 matches vs 999), `--folder`
   does (INBOX 3.6-5.2s vs All Mail 9.6-20.3s). Scope by folder; never loop an unbounded search.
+  `--since` does bound what a client-side criterion fetches.
 - **`--limit` bounds the matches**, not the fetch: a client-side criterion (`--text`,
   `--header`, `--has-attachments`, `--list-unsubscribe`, umlauts) keeps reading until the
   limit is met or the scope is exhausted. Every result carries a `search` block
@@ -43,7 +44,8 @@ pmb account add   # wizard: host/ports + email + bridge password, tests the logi
 
 ## Protection layer
 
-🟢 free · 🟡 confirm (`--yes`) · 🔴 critical (`delete --expunge`, bulk ≥ 20 — terminal only)
+🟢 free · 🟡 confirm (`--yes`) · 🔴 critical (`delete --expunge` or out of Trash, any 🟡
+operation on 20 or more messages — terminal only)
 
 `--dry-run` sits before all three: every writing command has it, it changes nothing (headers via
 `BODY.PEEK`, so not even `\Seen`) and needs no confirmation — the only way to inspect a 🔴
@@ -53,7 +55,8 @@ discover` has none either — without `--save` it already is the preview.
 
 ## Error format
 
-`{"ok": false, "error": {"type": "...", "title": "...", "detail": "..."}}` (exit ≠ 0)
+`{"ok": false, "error": {"type": "...", "title": "...", "detail": "..."}}` (exit ≠ 0) — except
+a write the protection layer blocks: exit 2, plain text on stderr, nothing on stdout.
 
 ## Gotchas
 

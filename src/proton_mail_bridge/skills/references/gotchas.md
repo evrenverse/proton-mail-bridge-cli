@@ -128,14 +128,3 @@ probes Windows host candidates (gateway/nameserver). Native macOS/Linux: plain
 
 UIDs are unique per account+folder → always pass `account` + `folder` + `uid` through from the
 search result for follow-up ops.
-
-Gluon returns the UID **after** the literal, in the next element of the FETCH response:
-
-```
-(b'2 (FLAGS (\Seen) BODY[HEADER.FIELDS (...)] {2}', b'\r\n')
-b' UID 3)'
-```
-
-Anything scanning only the leading part for `UID (\d+)` finds nothing and loses every UID
-silently. `imap_tools` reads both places; the CLI never parses FETCH responses itself. A test
-pins this, because an upgrade could break it without a single error message.

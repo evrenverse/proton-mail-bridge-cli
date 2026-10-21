@@ -16,8 +16,8 @@
 - One account can own several sender addresses: `--identity <label|address>` picks the sender
   (and thereby the account); `pmb --json account list` shows them.
 - Login codes: `message otp --from <domain> --since 10m` returns the newest one-time code
-  (INBOX + Spam, duration not date). The code is in `code` and in no error message; check
-  `ambiguous` before using it, and narrow with `--from`.
+  (INBOX + Spam, All Mail as fallback; duration not date). The code is in `code` and in no
+  error message; check `ambiguous` before using it, and narrow with `--from`.
 - Discovery: `pmb --help`, `pmb describe <path...>` (e.g. `describe account identity add`),
   `pmb fields message`.
 - Writes are risk-tiered (🟢/🟡/🔴); every writing command previews with `--dry-run` (changes

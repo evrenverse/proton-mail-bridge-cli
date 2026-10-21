@@ -61,7 +61,9 @@ def _body(body: str | None, body_file: str | None) -> str:
 @click.option("--body-file", default=None)
 @click.option("--html-file", default=None)
 @click.option("--attach", multiple=True, type=click.Path(exists=True))
-@click.option("--from", "from_", default=None)
+@click.option("--from", "from_", default=None,
+              help="Sending account (email/alias), like the global --account. The sender "
+                   "address is chosen with --identity.")
 @click.option("--identity", "identity", default=None,
               help="Sender identity: address or label (see `account identity`).")
 @no_signature_option

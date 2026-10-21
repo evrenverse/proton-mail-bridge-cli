@@ -1,6 +1,6 @@
 ---
 name: proton-mail-bridge
-description: Use when reading, searching, sending, or organizing Proton Mail via the local Proton Mail Bridge — list/search messages across all accounts, read bodies, download attachments, send/reply/forward, move/delete/flag messages. Provides the `proton-mail-bridge` (alias `pmb`) CLI with JSON output for agents.
+description: "Use when reading, searching, sending, or organizing Proton Mail via the local Proton Mail Bridge — list/search messages across all accounts, read bodies, download attachments, send/reply/forward, move/delete/flag messages. Provides the `proton-mail-bridge` (alias `pmb`) CLI with JSON output for agents."
 ---
 
 # proton-mail-bridge
@@ -21,7 +21,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
 
 - **Always `--json`**: `pmb --json <group> <command>`.
 - **Raw-data principle**: the CLI returns structured JSON. Aggregating, summing, matching, and
-  analyzing is the agent's job — not the CLI's.
+  analyzing is the agent's job; `message senders`, `--count-only` and `message otp` are the
+  deliberate exceptions.
 - **Bulk-first**: one task = 1–3 calls. `message search --with-body` fetches many bodies at
   once; `message read --uid 1,2,3`; `attachment download --uid 1,2,3 --all`.
 - **Token-efficient**: `message search --ids-only` for move/delete pipelines,
@@ -70,7 +71,8 @@ The Bridge must be running. Bridge password ≠ Proton account password (shown i
 🟢 free · 🟡 confirm (`--yes` skips) · 🔴 critical (human terminal input only)
 
 - **Never pass `--yes` on your own** — ask the user first.
-- 🔴 (`delete --expunge`, bulk delete ≥ 20) requires terminal input.
+- 🔴 (`delete --expunge` or out of Trash, and any 🟡 operation on 20 or more messages)
+  requires terminal input.
 - **`--dry-run` sits before all three tiers**: every writing command takes it, it changes
   nothing, and it needs no confirmation — so it also works for 🔴 operations you cannot run
   yourself. Run it first, show the result, then let the user decide.
@@ -84,7 +86,7 @@ pmb --json --account A message delete --uid 12,13,14 --dry-run
 ```
 
 `missing_uids` are UIDs the folder does not hold — usually a wrong `--folder` or a stale UID
-list. `risk` is the tier the real run would hit (bulk ≥ 20 escalates 🟡 → 🔴).
+list. `risk` is the tier the real run would hit.
 
 No `--dry-run` on read-only commands, and none on `account identity discover` — without
 `--save` that command *is* its own preview.
@@ -138,11 +140,15 @@ pmb --json message otp --from voelkner.de --since 10m
 
 `{"ok": false, "error": {"type": "...", "title": "...", "detail": "..."}}` (exit ≠ 0)
 
+A write the protection layer blocks is the exception: exit 2, a plain-text reason on stderr
+and nothing on stdout, also under `--json`.
+
 ## Common workflows
 
 - Identify vendors: `pmb --json message search --text "order" --since 2026-01-01 --with-body`
 - Collect invoices: `pmb --json message search --folder Sent --to client@x.com --with-attachments`
-  then `pmb --json attachment download --uid <ids> --all --dir ./invoices`
+  then `pmb --json --account <account> attachment download --uid <ids> --all --dir ./invoices
+  --folder Sent` (account and folder from the search result)
 - Hunt a missing document — `--text` reads bodies only, so a receipt forwarded as a bare
   attachment is invisible to it. Two extra passes, cheapest first:
   `pmb --json message search --attachment-name rechnung --since 2026-06-01` (filenames), then
@@ -153,8 +159,9 @@ pmb --json message otp --from voelkner.de --since 10m
   `pmb --json message otp --from <shop-domain> --since 10m` → check `ambiguous` → use `code`
 - Send mail: `pmb --json compose send --to a@x.com --subject "..." --body "..." --dry-run`
   → review → send without `--dry-run`
-- Clean up in bulk: `message search --ids-only` → `message move --uid <ids> --to Trash --dry-run`
-  → check `count`/`missing_uids`/`messages` with the user → run again without `--dry-run`
+- Clean up in bulk: `message search --folder INBOX --ids-only` → `message move --uid <ids>
+  --folder INBOX --to Trash --dry-run` → check `count`/`missing_uids`/`messages` with the user
+  → run again without `--dry-run`
 - Clean up across folders: `message bulk-delete --all-folders --from x@example.com --dry-run`
   → check per folder with the user → run again without `--dry-run` (add `--log`)
 
