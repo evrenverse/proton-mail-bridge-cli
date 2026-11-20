@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.3 (2026-11-20)
 - **A logo embedded as a `data:` URI now reaches Gmail and Outlook too.** Proton's composer
   does not always reference the logo as a `cid:` part; it also writes it straight into the
   markup as `<img src="data:image/png;base64,…">`. `signature import` only handled `cid:`, so
