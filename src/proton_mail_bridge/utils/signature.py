@@ -8,6 +8,8 @@ from the config, and `extract` can lift it out of a message Proton itself has se
 
 from __future__ import annotations
 
+import base64
+import binascii
 import mimetypes
 import re
 from html import unescape
@@ -22,6 +24,9 @@ BLOCK = "protonmail_signature_block"
 USER_BLOCK = f"{BLOCK}-user"  # excludes Proton's own "Sent with Proton Mail" footer
 _BREAKS = ("br", "div", "p", "tr", "li")
 _CID = re.compile(r"""src=(["'])cid:([^"']*)\1""", re.IGNORECASE)
+DATA_SRC = re.compile(r"""src=(["'])data:([^"']*)\1""", re.IGNORECASE)
+_SRC = re.compile(r"""src=(["'])(cid|data):([^"']*)\1""", re.IGNORECASE)
+_IMAGE_B64 = re.compile(r"(image/[\w.+-]+)(?:;[^;,]*)*;base64,(.*)", re.IGNORECASE | re.DOTALL)
 
 
 def append_text(body: str, sig: str) -> str:
@@ -79,25 +84,43 @@ def embed(
     """Repoint the signature at local copies: (rewritten HTML, {file name: bytes}).
 
     `parts` maps the source message's Content-IDs to (payload, filename, content type).
-    A reference the message does not carry — a remote URL, an already-local name — is
-    left alone.
+    A `data:image/…;base64,` URI becomes a file the same way: Gmail and Outlook strip
+    data: images, a cid: part reaches every client. A reference the message does not
+    carry — a remote URL, an already-local name, a data: URI that is not a base64
+    image — is left alone; the caller finds the latter via `DATA_SRC`.
     """
     files: dict[str, bytes] = {}
     names: dict[str, str] = {}
 
     def repl(match: re.Match) -> str:
-        cid = match.group(2)
-        part = parts.get(cid)
+        key = match.group(3)
+        if match.group(2).lower() == "cid":
+            part = parts.get(key)
+        else:
+            part = _decode(key)
+            key = f"data:{key}"  # the URI itself: a logo used twice is stored once
         if not part:
             return match.group(0)
-        if cid not in names:
+        if key not in names:
             data, filename, ctype = part
             ext = Path(filename or "").suffix or mimetypes.guess_extension(ctype or "") or ".png"
-            names[cid] = f"{stem}.sig.{len(names)}{ext}"
-            files[names[cid]] = data
-        return f'src="cid:{names[cid]}"'
+            names[key] = f"{stem}.sig.{len(names)}{ext}"
+            files[names[key]] = data
+        return f'src="cid:{names[key]}"'
 
-    return _CID.sub(repl, sig_html), files
+    return _SRC.sub(repl, sig_html), files
+
+
+def _decode(uri: str) -> tuple[bytes, None, str] | None:
+    """(payload, no filename, content type) of a base64 image data URI, else None."""
+    match = _IMAGE_B64.fullmatch(uri.strip())
+    if not match:
+        return None
+    try:
+        data = base64.b64decode("".join(match.group(2).split()), validate=True)
+    except binascii.Error:
+        return None
+    return (data, None, match.group(1).lower()) if data else None
 
 
 def _read(value: str | None, base: Path | None) -> str | None:

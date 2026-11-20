@@ -41,7 +41,10 @@ without `--save` they already are the preview.
 - `pmb --json --account A account identity signature import [--identity E --dir D --scan N --save --yes]`
   — reads back through Sent (default 25 messages) for one a Proton composer sent, and writes
   its signature to `<label>.sig` / `<label>.sig.html` next to `config.toml`, plus every
-  embedded image as `<label>.sig.<n>.<ext>` with the `cid:` repointed at it. Only Proton's
+  embedded image as `<label>.sig.<n>.<ext>` with the `cid:` repointed at it. A logo Proton
+  embedded as a `data:image/…;base64,` URI is stored the same way and its `src` rewritten to
+  `cid:`, since Gmail and Outlook drop data: images; one that is not a decodable base64
+  image stays as it is and the output's `hint` says so. Only Proton's
   `protonmail_signature_block` counts — an address without a configured signature reports
   `No signature found` rather than guessing. Without `--save` it only prints what it found;
   `--yes` is needed to overwrite existing files.

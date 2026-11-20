@@ -136,7 +136,10 @@ one that a Proton composer sent — mail sent through this CLI carries no signat
 exactly what sits at the top of Sent. It then writes `kontakt.sig` (plus `kontakt.sig.html`)
 next to `config.toml` and points the identity at them. An embedded logo is written along with
 them as `kontakt.sig.0.png`, and the `cid:` in the HTML is repointed at that file — the cid
-*is* the file name, so no third config entry is needed. Only Proton's own
+*is* the file name, so no third config entry is needed. A logo the Proton composer put into
+the markup as a `data:image/…;base64,` URI is written out and repointed the same way: Gmail
+and Outlook drop data: images, a `cid:` part reaches every client. A data: URI that is no
+decodable base64 image is left as it is, and the output's `hint` says so. Only Proton's own
 `protonmail_signature_block` counts; when an address has no signature configured, Proton
 marks the block empty and the command says so instead of guessing. Writing the files by hand
 works just as well:

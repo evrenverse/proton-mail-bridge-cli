@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -35,6 +36,10 @@ EMPTY_BLOCK = (
     "\r\n\r\n            </div>"
     "</div>"
 )
+
+# Proton's composer also embeds the logo straight into the markup instead of as a cid: part.
+LOGO = b"\x89PNG\r\n\x1a\n"
+LOGO_URI = "data:image/png;base64," + base64.b64encode(LOGO).decode()
 
 
 # --- appending ------------------------------------------------------------------
@@ -169,6 +174,41 @@ def test_embed_rewrites_protons_cids_to_local_files():
 
 def test_embed_leaves_a_reference_the_message_does_not_carry():
     html = '<img src="cid:foreign@x.de"><img src="https://x.de/logo.png">'
+    assert signature.embed(html, {}, "kontakt") == (html, {})
+
+
+def test_embed_lifts_a_data_uri_logo_into_a_file():
+    """Gmail and Outlook strip data: URIs in <img> — only a cid: survives every client."""
+    html = f'<img src="{LOGO_URI}" width="92" height="43"><img src="{LOGO_URI}">'
+    out, files = signature.embed(html, {}, "kontakt")
+    assert out == ('<img src="cid:kontakt.sig.0.png" width="92" height="43">'
+                   '<img src="cid:kontakt.sig.0.png">')
+    assert files == {"kontakt.sig.0.png": LOGO}
+
+
+def test_embed_reads_past_data_uri_parameters():
+    """RFC 2397 allows `;name=…` before `;base64` — still the same logo."""
+    html = f"<img src='{LOGO_URI.replace(';base64', ';name=logo.png;base64')}'>"
+    assert signature.embed(html, {}, "kontakt") == (
+        '<img src="cid:kontakt.sig.0.png">', {"kontakt.sig.0.png": LOGO})
+
+
+def test_embed_numbers_cid_and_data_images_in_one_sequence():
+    html = '<img src="cid:a@x.de"><img src="data:image/gif;base64,R0lGODlh">'
+    out, files = signature.embed(html, {"a@x.de": (b"\x89PNG", "logo.png", "image/png")},
+                                 "kontakt")
+    assert out == '<img src="cid:kontakt.sig.0.png"><img src="cid:kontakt.sig.1.gif">'
+    assert files == {"kontakt.sig.0.png": b"\x89PNG", "kontakt.sig.1.gif": b"GIF89a"}
+
+
+@pytest.mark.parametrize("uri", [
+    "data:image/png;base64,not*base64",       # malformed
+    "data:image/png;base64,",                 # nothing in it
+    "data:text/plain;base64,SGFsbG8=",        # not an image
+    "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",  # not base64
+])
+def test_embed_leaves_a_data_uri_it_cannot_decode(uri):
+    html = f'<img src="{uri}">'
     assert signature.embed(html, {}, "kontakt") == (html, {})
 
 
@@ -455,6 +495,36 @@ def test_import_never_saves_an_empty_proton_signature(monkeypatch, tmp_path):
     assert result.exit_code != 0
     assert json.loads(result.output)["error"]["title"] == "No signature found"
     assert not list(tmp_path.glob("*.sig*"))
+
+
+def test_import_turns_a_data_uri_logo_into_an_inline_image(monkeypatch, tmp_path):
+    html = PROTON_HTML.replace("Evren Tiras<br>",
+                               f'<img src="{LOGO_URI}" width="92"><br>Evren Tiras<br>')
+    path = _import_setup(monkeypatch, tmp_path, [Identity("kontakt@p.me", label="kontakt")],
+                         html=html)
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "signature", "import",
+                                       "--identity", "kontakt", "--save"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["images"] == ["kontakt.sig.0.png"]
+    assert "hint" not in data
+    assert "data:" not in (tmp_path / "kontakt.sig.html").read_text(encoding="utf-8")
+    # What `compose` attaches: the stored file, reached through the rewritten cid.
+    ident = cfgmod.load_config(path).accounts[0].identities[0]
+    assert signature.load(ident, base=tmp_path)[2] == [("kontakt.sig.0.png", LOGO, "image/png")]
+
+
+def test_import_keeps_and_reports_a_data_uri_it_cannot_decode(monkeypatch, tmp_path):
+    bad = '<img src="data:image/png;base64,not*base64">'
+    _import_setup(monkeypatch, tmp_path, [Identity("kontakt@p.me", label="kontakt")],
+                  html=PROTON_HTML.replace("Evren Tiras<br>", f"{bad}<br>Evren Tiras<br>"))
+    result = CliRunner().invoke(main, ["--json", "account", "identity", "signature", "import",
+                                       "--identity", "kontakt", "--save"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["images"] == []
+    assert "data:" in data["hint"]
+    assert bad in (tmp_path / "kontakt.sig.html").read_text(encoding="utf-8")
 
 
 def test_import_confirms_before_overwriting(monkeypatch, tmp_path):

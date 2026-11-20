@@ -84,6 +84,9 @@ An HTML signature also adds an HTML part to a plain-text send — a logo cannot 
 and the images it references by `cid:` are attached inline. Those files live next to the HTML
 file and are named by their cid; if one is missing, `compose` refuses rather than sending a
 signature with a hole where the logo should be. Re-run `signature import --save` to write them.
+A logo embedded as a `data:` URI is turned into such a file too; Gmail and Outlook drop data:
+images, so a `hint` in the import output about one it could not decode means that logo will
+not arrive there.
 
 `signature import` only accepts Proton's own `protonmail_signature_block`. Do **not** try to
 recover a signature by cutting a mail body at the last `-- ` line: in real mail that

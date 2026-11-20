@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+- **A logo embedded as a `data:` URI now reaches Gmail and Outlook too.** Proton's composer
+  does not always reference the logo as a `cid:` part; it also writes it straight into the
+  markup as `<img src="data:image/png;base64,…">`. `signature import` only handled `cid:`, so
+  `images` stayed empty and the data URI went into the stored `.sig.html` unchanged, and
+  Gmail (web) and Outlook strip data: images. The import now treats a
+  `data:image/<type>;base64,` URI exactly like a `cid:` image: it decodes the block, writes
+  it as `<label>.sig.<n>.<ext>` (one numbering across both kinds), and rewrites the `src` to
+  `cid:` so `compose` attaches it inline. A data: URI that is not a decodable base64 image
+  is left as it is and reported in the output's `hint` instead of failing the import. A
+  signature imported before this version still carries the data URI; re-run
+  `account identity signature import --save --yes` once.
+
 ## 0.7.2 (2026-08-31)
 - **The logo in an imported signature now actually arrives.** Reported from the field: mail
   generated through the CLI kept showing the signature without its logo. Two things had to

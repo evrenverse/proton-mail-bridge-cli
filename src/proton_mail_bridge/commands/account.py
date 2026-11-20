@@ -435,15 +435,21 @@ def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -
         )
     stem = ident.label or ident.email.split("@")[0]
     images: dict[str, bytes] = {}
-    if html_sig and embedded:
+    if html_sig:
         # The cid becomes the file name — that is all `compose` needs to find the image.
         html_sig, images = sig_mod.embed(html_sig, embedded, stem)
     found = {"identity": ident.email, "account": account.email, "folder": folder,
              "source_uid": records[0]["uid"], "signature": text_sig,
              "signature_html": html_sig, "images": sorted(images)}
+    hint = (
+        "An image in the signature is a data: URI that is not a base64 image, so it was "
+        "left as is — Gmail and Outlook drop those. Store the image next to the HTML file and "
+        "reference it as cid:<file name>. "
+        if html_sig and sig_mod.DATA_SRC.search(html_sig) else ""
+    )
     if not do_save:
         out_mod.out({**found, "saved": None,
-                     "hint": "Check the text above, then repeat with --save."})
+                     "hint": hint + "Check the text above, then repeat with --save."})
         return
 
     base = Path(target_dir).expanduser() if target_dir else path.parent
@@ -470,7 +476,8 @@ def signature_import_cmd(ctx, identity, target_dir, scan, do_save, assume_yes) -
                 target.name if base.resolve() == path.parent.resolve() else str(target))
         saved[field] = str(target)
     save_config(cfg, path)
-    out_mod.out({**found, "saved": saved, "config": str(path)})
+    out_mod.out({**found, "saved": saved, "config": str(path),
+                 **({"hint": hint.strip()} if hint else {})})
 
 
 def _autodetect_security(endpoint) -> None:
